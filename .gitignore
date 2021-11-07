@@ -1,0 +1,27 @@
+
+# videos
+videos/
+*.mp4
+
+# pycache
+__pycache__/
+
+# log files
+*.log
+
+# downloaded weights
+*.pth
+
+# results
+results/
+stats/
+
+# cache
+cache/
+tmp/
+
+# checkpoints
+.ipynb_checkpoints
+
+# temp mp4s
+tmp/*
