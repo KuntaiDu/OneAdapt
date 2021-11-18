@@ -25,6 +25,8 @@ from PIL import Image
 from torch.backends import cudnn
 from torchvision.ops.boxes import batched_nms
 
+from config import settings
+
 obj_list = [
     "person",
     "bicycle",
@@ -161,7 +163,6 @@ class EfficientDet(DNN):
             self.model.cuda()
 
         # class ids: all vehicles and persons except for train.
-        self.class_ids = [0, 1, 2, 3, 4, 6]
         # code refactor version
         # self.model = EfficientDetBackbone(compound_coef=compound_coef, num_classes=len(obj_list))
         # self.model.load_state_dict(torch.load(f'dnn/efficient_det/weights/efficientdet-d{compound_coef}.pth'))
@@ -209,7 +210,7 @@ class EfficientDet(DNN):
             features, regression, classification, anchors = self.model(x)
 
             # postprocessing
-            threshold = 0.2
+            threshold = 0.05
             iou_threshold = 0.2
             out = postprocess(
                 x,
@@ -253,7 +254,7 @@ class EfficientDet(DNN):
             * (bboxes[:, 3] - bboxes[:, 1])
             / 720
         )
-        return size < 0.08
+        return size < settings.postprocess.size_threshold
 
     def step2(self, tensor):
         return torch.where(

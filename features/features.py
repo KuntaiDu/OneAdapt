@@ -39,12 +39,16 @@ feature_list = [
 
 def get_frame_features(scores, args):
     
-    assert isinstance(args, Munch)
 
 
     feat = torch.cat(
-        [scores.sum()[None], 
-        ((scores - args.confidence_threshold) * 10).sigmoid().sum()[None]])
+        [
+            scores.sum()[None], 
+            ((scores - args.confidence_threshold) * 10).sigmoid().sum()[None],
+            (scores > args.confidence_threshold).float().sum()[None],
+            ],
+        )
+    
     return feat.unsqueeze(0)
 
 

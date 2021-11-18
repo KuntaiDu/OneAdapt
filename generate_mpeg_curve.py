@@ -4,131 +4,59 @@ import os
 import subprocess
 from pathlib import Path
 
-from munch import Munch
+from munch import *
 from pdb import set_trace
 
 from utils.results import read_results
 from itertools import product
 
-# gt_qp = 24
-# qp_list = [24]
-# qp_list = [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
+from inference import inference
+from examine import examine
 
-# qp_list = [24]
-# fr_list = [30]
-# res_list = {720:"1280:720"}
-
-qp_list = [24, 26, 30, 32, 34, 36, 40, 44, 50]
-fr_list = [30, 10, 5, 3]
-res_list = {240:"352:240", 360:"480:360", 480:"858:480", 720:"1280:720"}
+from dnn.dnn_factory import DNN_Factory
+import pymongo
 
 
-gt = 'qp_24_fr_30_res_720'
+from config import settings
 
 
-def main(args):
 
-    logger = logging.getLogger("mpeg_curve")
+gt_config = settings.ground_truths_config
+gt_config = munchify(gt_config)
 
-    for video_name in args.inputs:
-        video_name = Path(video_name)
-        
-        # generate mpeg curve
-        for qp, fr, res in product(qp_list, fr_list, sorted(list(res_list.keys()))[::-1]):
-            
-            input_name = f"{video_name}.mp4"
-            output_name = f"{video_name}_qp_{qp}_fr_{fr}_res_{res}.mp4"
-            print(f"Generate video for {output_name}")
-            # encode_with_qp(input_name, output_name, qp, args)
 
-            if args.force or not os.path.exists(output_name):
+video_name = settings.video_name
+total_sec = settings.num_segments
+db = pymongo.MongoClient("mongodb://localhost:27017/")[settings.collection_name]
 
-                subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-i",
-                        input_name,
-                        # "-start_number",
-                        # "0",
-                        "-qp",
-                        f"{qp}",
-                        "-s",
-                        f"{res_list[res]}",
-                        "-filter:v",
-                        f"fps={fr}",
-                        output_name,
-                    ]
-                )
-                    
-                subprocess.run(
-                    [
-                        "python",
-                        "inference.py",
-                        "-i",
-                        output_name,
-                        "--app",
-                        args.app,
-                        "--visualize_step_size",
-                        '10',
-                        '--confidence_threshold',
-                        '0.8',
-                        '--gt_confidence_threshold',
-                        '0.8'
-                    ]
-                )
 
-            subprocess.run(
-                [
-                    "python",
-                    "examine.py",
-                    "-i",
-                    output_name,
-                    "-g",
-                    f"{video_name}_{gt}.mp4",
-                    "--app",
-                    args.app,
-                    "--stats",
-                    args.stats,
-                    '--confidence_threshold',
-                    '0.8',
-                    '--gt_confidence_threshold',
-                    '0.8'
-                ]
-            )
 
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
+    logger = logging.getLogger("mpeg_curve")
 
-    parser.add_argument(
-        "-i",
-        "--inputs",
-        nargs="+",
-        help="The video file names. The largest video file will be the ground truth.",
-        # default=['youtube_driving/chicago/chicago_%d/video' % i for i in range(20)],
-        default = ['youtube/la_driving/%d/video' % i for i in range(30, 60)]
-    )
-    parser.add_argument(
-        "-f",
-        "--force",
-        type=bool,
-        help="Force the program to regenerate all the outputs or not.",
-        default=False,
-    )
-    parser.add_argument(
-        '--app',
-        type=str,
-        default='COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
-    )
-    parser.add_argument(
-        '--stats',
-        type=str,
-        default='stats_la_driving'
-    )
+    # for app_name in app_name_list: 
+    # for app_name in ['EfficientDet-d8']:
+    # for gamma in [0.5, 0.6, 0.7, 0.8, 0.9]:
+    for idx, gamma in enumerate([0.5, 0.6, 0.7, 0.8, 0.9, 1.01, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9]):
+        if idx % 3 != 2:
+            continue
 
-    
+        app = DNN_Factory().get_model(gt_config.app)
 
-    args = parser.parse_args()
-    main(args)
+        for sec in range(total_sec):
+
+            gt_args = gt_config.copy()
+            gt_args.update({
+                'input': video_name,
+                'second': sec
+            })
+
+            x_args = gt_args.copy()
+            x_args.gamma = gamma 
+
+            examine(x_args,gt_args,app,db)
+        
+
+

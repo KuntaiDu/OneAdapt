@@ -15,6 +15,8 @@ from inference import inference
 from dnn.dnn_factory import DNN_Factory
 import pymongo
 
+from config import settings
+
 # gt_qp = 24
 # qp_list = [24]
 # qp_list = [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
@@ -30,18 +32,15 @@ import pymongo
 
 # gt = 'qp_24_fr_30_res_720'
 
-gt_config = {
-    'app': 'EfficientDet-d8',
-    'qp': '0',
-    'res': '1280:720',
-    'fr': '10',
-}
-gt_config = munchify(gt_config)
+gt_config = munchify(settings.ground_truths_config)
 
 
-video_name = 'videos/dashcam/dashcam_3/part%d.mp4'
-total_sec = 12
-db = pymongo.MongoClient("mongodb://localhost:27017/")["diff_EfficientDet"]
+
+video_name = settings.video_name
+total_sec = settings.num_segments
+db = pymongo.MongoClient("mongodb://localhost:27017/")[settings.collection_name]
+
+# settings.inference_config.enable_visualization = True
 
 
 if __name__ == "__main__":
@@ -52,13 +51,16 @@ if __name__ == "__main__":
 
     for sec in range(total_sec):
 
-        args = gt_config.copy()
-        args.update({
-            'input': video_name,
-            'second': sec
-        })
+        for gamma in [1.0]:
 
-        inference(args, db, app)
+            args = gt_config.copy()
+            args.update({
+                'input': video_name,
+                'second': sec,
+                'gamma': gamma
+            })
+
+            inference(args, db, app)
 
         
 

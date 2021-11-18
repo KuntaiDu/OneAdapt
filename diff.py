@@ -27,11 +27,16 @@ import yaml
 from pdb import set_trace
 
 from dnn.dnn_factory import DNN_Factory
+from dnn.dnn import DNN
 from utils.results import write_results
 from utils.video_reader import read_video, read_video_config
 import utils.config_utils as conf
 from collections import defaultdict
 from tqdm import tqdm
+from inference import inference, encode
+from examine import examine
+import pymongo
+from munch import *
 
 # from knob.control_knobs import framerate_control, quality_control
 
@@ -49,18 +54,12 @@ conf.space = {
 }
 state = {}
 
-with open('stats_cityscape_0', 'r') as f:
-    full_stats = yaml.safe_load(f.read())
+len_gt_video = 10
 
-'''
-    def get_bw(x):
-        return 123089.70337245 + x['qp'] * -6634.7401455 + x['res'] * 228.31799769 + x['fr'] * 3258.6768985
 
-    plt.scatter( [i['bw'] for i in mpeg_conf], [-2.5/50000 * get_bw(i) + i['trunc_sum_score'] for i in mpeg_conf], c=[i['f1'] for i in mpeg_conf], cmap='Blues')
-'''
 
-default_size = (800, 1333)
-conf.serialize_order = ['qp', 'fr', 'res']
+# default_size = (800, 1333)
+conf.serialize_order = ['gamma']
 
 
 
@@ -74,7 +73,7 @@ def augment(result, lengt):
 
 
 
-def read_average_from_config(video_name, state, len_gt_video, gt_bw):
+def read_average_from_config(gt_args: Munch, state, app: DNN, db: pymongo.database.Database):
 
     def isfloat(x):
         try:
@@ -88,23 +87,18 @@ def read_average_from_config(video_name, state, len_gt_video, gt_bw):
 
     ret = defaultdict(lambda: 0)
     
-    for video_name, prob in conf.serialize_all_states(video_name, conf.state2config(state), 1., conf.serialize_order):
-
-        # update statistics of linear combination
-        
+    for args, prob in conf.serialize_all_states(gt_args.copy(), conf.state2config(state), torch.tensor(1.), conf.serialize_order):
+        # encode
+        args['gamma'] = 1.0
+        video_name = encode(args)
         video = list(read_video(video_name))
         video = torch.cat([i[1] for i in video])
-        video = F.interpolate(video, size=default_size)
+        # video = F.interpolate(video, size=default_size)
         video = augment(video, len_gt_video)
 
         
-        bw = read_video_config(video_name)['bw'] / gt_bw
-
         video = video * prob
 
-        # average_bw = max(average_bw, bw)
-        
-        bw = bw * 1.0 * prob
         sum_prob += prob
 
         # set_trace()
@@ -115,14 +109,18 @@ def read_average_from_config(video_name, state, len_gt_video, gt_bw):
             average_video = average_video + video
 
         # update statistics of random choice.
-        stat = conf.lookup(video_name, full_stats)
+        stat = examine(args,gt_args,app,db)
+        
+        # print(stat)
 
 
         # assert ret.keys() == {}.keys() or stat.keys() == ret.keys()
 
         for key in stat:
             if type(stat[key]) in [int, float]:
-                ret['average_' + key] += stat[key] * prob
+                ret[key] += stat[key] * prob
+
+        Path(video_name).unlink()
 
 
     ret.update({'average_video': average_video})
@@ -136,6 +134,8 @@ def main(args):
     # initialize
     logger = logging.getLogger("diff")
     torch.set_default_tensor_type(torch.FloatTensor)
+
+    db = pymongo.MongoClient("mongodb://localhost:27017/")["diff_gamma_d2"]
 
     app = DNN_Factory().get_model(args.app)
 
@@ -162,9 +162,11 @@ def main(args):
     if Path(args.output).exists():
         Path(args.output).unlink()
 
-    state['qp'] = torch.tensor(args.qp)
-    state['res'] = torch.tensor(args.res)
-    state['fr'] = torch.tensor(args.fr)
+    # state['qp'] = torch.tensor(args.qp)
+    # state['res'] = torch.tensor(args.res)
+    # state['fr'] = torch.tensor(args.fr)
+    for key in conf.serialize_order:
+        state[key] = torch.tensor(getattr(args, key))
 
 
     # build optimizer for state
@@ -187,68 +189,34 @@ def main(args):
 
         # for debugging purpose.
         # sec = 0
-
-        video_name = args.input % sec
-
-        gt_config = read_video_config(conf.serialize_gt(video_name))
-        len_gt_video = gt_config['#frames']
-        gt_bw = gt_config['bw']
+        
+        gt_args = {
+            'input': args.input,
+            'second': sec,
+            'app': args.app,
+            'res': '1280:720',
+            'fr': 10,
+            'qp': 0,
+            'gamma': 1.0,
+        }
+        gt_args = munchify(gt_args)
 
         # construct average video and average bw
-        ret = read_average_from_config(video_name, state, len_gt_video, gt_bw)
-        true_average_bw = ret['average_norm_bw'].item()
-        true_average_score = ret['average_sum_score'].item()
-        true_average_f1 = ret['average_f1'].item()
-        true_average_std_score_mean = ret['average_std_score_mean'].item()
+        ret = read_average_from_config(gt_args, state, app, db)
+        true_average_bw = ret['norm_bw'].item()
+        true_average_score = ret['mean_sum_score'].item()
+        true_average_f1 = ret['f1'].item()
+        true_average_std_score_mean = ret['std_sum_score'].item()
         average_video = ret['average_video']
-        average_bw = ret['average_norm_bw']
+        average_bw = ret['norm_bw']
 
         print(average_bw)
-        # set_trace()
         
-        # average_bw = 0
-        # average_video = None
-        # sum_prob = 0
-        # true_average_bw = 0
-        # true_average_score = 0
-        # true_average_f1 = 0
-        # true_average_std_score_mean = 0
-
-        # for video_name, prob in serialize_all_states(video_name, state2config(state), 1., serialize_order):
-
-        #     # update statistics of linear combination
+        
+        if 'gamma' in state:
+            average_video = (average_video ** state['gamma']).clamp(0, 1)
             
-        #     video = list(read_video(video_name))
-        #     video = torch.cat([i[1] for i in video])
-        #     video = F.interpolate(video, size=default_size)
-        #     video = augment(video, len_gt_video)
-            
-        #     bw = read_video_config(video_name)['bw'] / gt_bw
-
-        #     video = video * prob
-
-        #     # average_bw = max(average_bw, bw)
-            
-        #     bw = bw * 1.0 * prob
-        #     sum_prob += prob
-
-        #     # set_trace()
-
-        #     average_bw = average_bw + bw
-        #     if average_video is None:
-        #         average_video = video
-        #     else:
-        #         average_video = average_video + video
-
-        #     # update statistics of random choice.
-        #     true_bw, true_score, true_f1, true_std_score_mean = lookup(video_name)
-
-        #     true_average_bw += true_bw * prob / gt_bw
-        #     true_average_score += true_score * prob
-        #     true_average_f1 += true_f1 * prob
-        #     true_average_std_score_mean += true_std_score_mean * prob
-
-        # inference on average video
+        
 
         scores = {}
         for idx, frame in enumerate(tqdm(average_video)):
@@ -260,7 +228,7 @@ def main(args):
         # interpolated_fr = conf.state2config(state)['fr']
         # interpolated_fr = interpolated_fr[0][0] * interpolated_fr[0][1] + interpolated_fr[1][0] * interpolated_fr[1][1]
         
-        interpolated_fr = ret['average_fr']
+        interpolated_fr = ret['fr']
         average_std_score_mean = (torch.tensor([scores[i] for i in scores.keys()]).std(unbiased=False) / interpolated_fr.detach())
         
         average_sum_score = torch.tensor([scores[i] for i in scores.keys()]).mean()
@@ -273,12 +241,14 @@ def main(args):
 
         if args.train:
             # backprop on bw
-            (args.bw_weight *  average_bw).backward(retain_graph=True)
+            # (args.bw_weight *  average_bw).backward(retain_graph=True)
             # backprop on std_score_mean, for the frame rate term.
-            (args.std_score_mean_weight * (torch.tensor([scores[i] for i in scores.keys()]).std(unbiased=False) / interpolated_fr)).backward(retain_graph=True)
+            # (args.std_score_mean_weight * (torch.tensor([scores[i] for i in scores.keys()]).std(unbiased=False) / interpolated_fr)).backward(retain_graph=True)
 
             # backprop on each frame
-            for idx, frame in enumerate(tqdm(average_video)):
+            average_video_detached = average_video.detach()
+            average_video_detached.requires_grad = True
+            for idx, frame in enumerate(tqdm(average_video_detached)):
                 result = app.inference(frame[None, :, :, :], detach=False, grad=True)
                 score = torch.sum(result["instances"].scores)
 
@@ -289,8 +259,13 @@ def main(args):
                     else:
                         return score
                 std_score_mean = (torch.tensor([temp(i) for i in scores.keys()]).std(unbiased=False) / interpolated_fr.detach())
+                
+                # set_trace()
 
-                (-(delta_sum_score - args.std_score_mean_weight * std_score_mean)).backward(retain_graph=True)
+                # (-(delta_sum_score - args.std_score_mean_weight * std_score_mean)).backward()
+                (-delta_sum_score).backward()
+                
+            average_video.backward(average_video_detached.grad)
 
 
             # visualize_heat_by_summarywriter(T.ToPILImage()(average_video[0]), average_video.grad.abs().mean(dim=0).mean(dim=0), 'grad', writer, sec)
@@ -313,9 +288,14 @@ def main(args):
 
         fuse_obj = (average_sum_score - args.std_score_mean_weight * average_std_score_mean + (-args.bw_weight * average_bw))
         true_obj = (true_average_score - args.std_score_mean_weight * true_average_std_score_mean + (-args.bw_weight * true_average_bw))
+        
+        
+        state_str = ""
+        for key in conf.serialize_order:
+            logger.info('%s : %.3f, grad: %.3f', key, state[key], state[key].grad)
 
-        logger.info('QP: %.3f, Res: %.3f, Fr: %.3f', state['qp'], state['res'], state['fr'])
-        logger.info('qpgrad: %.3f, frgrad: %.3f, resgrad: %.3f', state['qp'].grad, state['fr'].grad, state['res'].grad)
+        # logger.info('QP: %.3f, Res: %.3f, Fr: %.3f', state['qp'], state['res'], state['fr'])
+        # logger.info('qpgrad: %.3f, frgrad: %.3f, resgrad: %.3f', state['qp'].grad, state['fr'].grad, state['res'].grad)
         
         logger.info('Score: %.3f, std: %.3f, bw : %.3f, Obj: %.3f', average_sum_score, average_std_score_mean, average_bw.item(), fuse_obj)
 
@@ -330,11 +310,11 @@ def main(args):
             
         for tensor in state.values():
             tensor.requires_grad = False
-        for key in conf.serialize_order:
-            if state[key] > 1:
-                state[key][()] = 1.
-            if state[key] < 1e-7:
-                state[key][()] = 1e-7
+        # for key in conf.serialize_order:
+        #     if state[key] > 1:
+        #         state[key][()] = 1.
+        #     if state[key] < 1e-7:
+        #         state[key][()] = 1e-7
         for tensor in state.values():
             tensor.requires_grad = True
         
@@ -342,15 +322,15 @@ def main(args):
         
         logger.info(f'Current config: {conf.state2config(state)}')
 
-        choose = conf.random_serialize(video_name, conf.state2config(state))
+        # choose = conf.random_serialize(video_name, conf.state2config(state))
 
         
-        # logger.info('Choosing %s', choose)
+        # # logger.info('Choosing %s', choose)
 
         with open(args.output, 'a') as f:
             f.write(yaml.dump([{
                 'sec': sec,
-                'choice': choose,
+                # 'choice': choose,
                 'config': conf.state2config(state, serialize=True),
                 'true_average_bw': true_average_bw,
                 'true_average_score': true_average_score,
@@ -361,7 +341,7 @@ def main(args):
                 'average_std_score_mean': average_std_score_mean.item(),
                 'average_range_score_mean': ((sum_score.max() - sum_score.min()) / interpolated_fr).item(),
                 'average_abs_score_mean': (sum_score - sum_score.mean()).abs().mean().item(),
-                'all_states': list(conf.serialize_all_states(args.input, conf.state2config(state, serialize=True), 1., conf.serialize_order)),
+                # 'all_states': list(conf.serialize_all_states(args.input, conf.state2config(state, serialize=True), 1., conf.serialize_order)),
                 # 'qp_grad': state['qp'].grad.item()
             }]))
 
@@ -460,26 +440,26 @@ if __name__ == "__main__":
         default=0.003
     )
 
-    parser.add_argument(
-        '--qp',
-        help='The quantization parameter',
-        type=float,
-        default=1.
-    )
+    # parser.add_argument(
+    #     '--qp',
+    #     help='The quantization parameter',
+    #     type=float,
+    #     default=1.
+    # )
 
-    parser.add_argument(
-        '--fr',
-        help='The frame rate',
-        type=float,
-        default=1.
-    )
+    # parser.add_argument(
+    #     '--fr',
+    #     help='The frame rate',
+    #     type=float,
+    #     default=1.
+    # )
 
-    parser.add_argument(
-        '--res',
-        help='The resolution',
-        type=float,
-        default=1.
-    )
+    # parser.add_argument(
+    #     '--res',
+    #     help='The resolution',
+    #     type=float,
+    #     default=1.
+    # )
 
     parser.add_argument(
         '-i',
@@ -519,7 +499,7 @@ if __name__ == "__main__":
         "--app", 
         type=str, 
         help="The name of the model.", 
-        default='COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml',
+        default='EfficientDet-d2',
     )
 
     parser.add_argument(
@@ -533,6 +513,12 @@ if __name__ == "__main__":
         type=float,
         help='The weight for bandwidth term',
         default=20
+    )
+    parser.add_argument(
+        '--gamma',
+        type=float,
+        help='Adjust the luminance.',
+        default=1.5,
     )
 
     args = parser.parse_args()

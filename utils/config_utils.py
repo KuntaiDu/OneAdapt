@@ -1,5 +1,8 @@
 
 import random
+from examine import examine
+import torch
+from munch import *
 # from collections import defaultdict
 # import torch
 
@@ -66,6 +69,10 @@ def state2config(state, serialize=False):
     config = {}
 
     for key in state:
+        
+        if key not in space:
+            config[key] = state[key]
+            continue
 
         assert 1 >= state[key] > 0
 
@@ -133,17 +140,18 @@ def random_serialize(prefix, config):
 
     return prefix
 
-def serialize_all_states(prefix, config, prob, keys):
+def serialize_all_states(ret, config, prob, keys):
 
     if len(keys) == 0:
-        yield (prefix + '.mp4', prob)
+        yield munchify(ret), prob
     else:
         key = keys[0]
-        yield from serialize_all_states(prefix + '_' + key + '_' + str(config[key][0][0]), config, prob * config[key][0][1], keys[1:])
-        yield from serialize_all_states(prefix + '_' + key + '_' + str(config[key][1][0]), config, prob * config[key][1][1], keys[1:])
-
-def lookup(video_name, stats):
-    for i in stats:
-        if i['video_name'] == video_name:
-            return i
-    assert False, 'No entry for %s found.' % video_name
+        if isinstance(config[key], torch.Tensor):
+            # a differentiable knob. No need to discretize it.
+            ret[key] = config[key].item()
+            yield from serialize_all_states(ret, config, prob, keys[1:])
+        else:
+            ret[key] = config[key][0][0]
+            yield from serialize_all_states(ret, config, prob * config[key][0][1], keys[1:])
+            ret[key] = config[key][1][0]
+            yield from serialize_all_states(ret, config, prob * config[key][1][1], keys[1:])

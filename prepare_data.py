@@ -5,7 +5,7 @@ from pathlib import Path
 import glob
 
 video_list = [
-    ('/tank/kuntai/visdrone/VisDrone2019-SOT-train/sequences/uav0000003_00000_s/', 3),
+    ('/tank/kuntai/visdrone/VisDrone2019-SOT-train/sequences/uav0000126_07915_s', 3),
 ]
 
 for v, idx in video_list:

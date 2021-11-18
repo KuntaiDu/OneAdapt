@@ -34,13 +34,14 @@ import pymongo
 import subprocess
 import pickle
 
+from config import settings
+
+import logging
 sns.set()
 
 
-default_size = (800, 1333)
-default_config = Munch()
-default_config.visualize = False
-default_config.force = False
+__all__ = ['inference', 'encode']
+
 
 
 
@@ -48,13 +49,17 @@ default_config.force = False
 def encode(args):
 
     input_video = args.input % args.second
-    output_video = f'temp_{time.time()}.mp4'
+    output_video = f'cache/temp_{time.time()}.mp4'
 
 
     subprocess.run(
         [
             "ffmpeg",
             "-y",
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-stats",
             "-i",
             input_video,
             "-s",
@@ -77,9 +82,19 @@ def encode(args):
 
 
 
-def inference(args, db, app=None, config=default_config):
+def inference(args, db, app=None):
 
+    logger = logging.getLogger('inference')
+    config = settings.inference_config
+
+
+
+    # logger.info('Inference on %s with res %s, fr %d, qp %d, app %s, gamma %.2f', args.input % args.second, args.res, args.fr, args.qp, args.app, args.gamma)
+    args_string = ""
+    for key in args:
+        args_string += f'{key}_{args[key]}_'
     args = args.copy()
+    logger.info('Try inference on %s', args_string)
 
     logger = logging.getLogger("inference")
     handler = logging.NullHandler()
@@ -89,17 +104,27 @@ def inference(args, db, app=None, config=default_config):
 
 
     # check if we already performed inference.
-    if not config.force and db['inference'].find_one(args) is not None:
-        for x in db['inference'].find(args).sort("_id", pymongo.DESCENDING):
-            return munchify(x)
+    if db['inference'].find_one(args) is not None:
 
+        if not config.force_inference:
+
+            logger.info('Inference results already cached. Return.')
+            for x in db['inference'].find(args).sort("_id", pymongo.DESCENDING):
+                return munchify(x)
+
+        else:
+            
+            logger.info('Remove previous records and force inference.')
+            db['inference'].delete_many(args)
+
+    logger.info('Start inference.')
 
     # prepare for inference
-    args_string = ""
-    for key in args:
-        args_string += f'{key}_{args[key]}'
-    if config.visualize:
-        writer = SummaryWriter(runs + args_string)
+    
+    if config.enable_visualization:
+        logger.info('Launch visualization')
+        writer = SummaryWriter('runs/'+ args_string)
+        
 
     assert app is not None and app.name == args.app
     video_name = encode(args)
@@ -117,11 +142,17 @@ def inference(args, db, app=None, config=default_config):
 
         if hasattr(args, 'resize') and args.resize:
             frame = F.interpolate(frame, size=default_size)
+            
+        if hasattr(args, 'gamma'):
+            frame = T.functional.adjust_gamma(frame, args.gamma)
 
         inference_results[fid] = app.inference(frame, grad=False, detach=True, dryrun=False)
+
+        
             
 
-        if config.visualize and fid % config.visualize == 0:
+        if config.enable_visualization and fid % config.visualize_step_size == 0:
+
             logger.info('Visualizing frame %d...', fid)
             image = T.ToPILImage()(frame[0])
             from PIL import Image
@@ -129,8 +160,8 @@ def inference(args, db, app=None, config=default_config):
             writer.add_image("decoded_image", T.ToTensor()(image), fid)
             # filtered = inference_results[fid]
             # set_trace()
-            filtered = app.filter_result(inference_results[fid], args)
-            image = app.visualize(image, filtered, args)
+            filtered = app.filter_result(inference_results[fid])
+            image = app.visualize(image, filtered)
             writer.add_image("inference_result", T.ToTensor()(image), fid)
 
 

@@ -9,6 +9,8 @@ from PIL import Image
 from pdb import set_trace
 from features.features import *
 
+from config import settings
+
 from munch import *
 
 class DNN:
@@ -24,8 +26,6 @@ class DNN:
     def filter_result(
         self,
         result,
-        args,
-        gt=False,
         confidence_check=True,
         require_deepcopy=False,
         class_check=True,
@@ -40,7 +40,7 @@ class DNN:
 
         inds = scores < 0
         if class_check:
-            for i in self.class_ids:
+            for i in getattr(settings, self.name).class_ids:
                 inds = inds | (class_ids == i)
         else:
             inds = scores > -1
@@ -51,11 +51,7 @@ class DNN:
         #    else:
         #        inds = inds & (scores > args.confidence_threshold)
 
-        if confidence_check:
-            if gt:
-                inds = inds & (scores > args.gt_confidence_threshold)
-            else:
-                inds = inds & (scores > args.confidence_threshold)
+        inds = inds & (scores > getattr(settings, self.name).confidence_threshold)
 
         # result["instances"] = result["instances"][inds]
 
@@ -68,22 +64,20 @@ class DNN:
         out = v.draw_instance_predictions(result["instances"])
         return Image.fromarray(out.get_image(), "RGB")
 
-    def calc_feature(self, result_dict, args):
-
-        assert isinstance(args, Munch)
+    def calc_feature(self, result_dict):
         
         feature_list = []
         for key in result_dict:
-            feature_list.append(get_frame_features(result_dict[key]["instances"].scores, args))
+            feature_list.append(get_frame_features(result_dict[key]["instances"].scores, getattr(settings, self.name)))
         feature_list = torch.cat(feature_list, dim=0)
-        return get_features(feature_list, args) 
+        return get_features(feature_list, getattr(settings, self.name)) 
 
-    def calc_accuracy(self, result_dict, gt_dict, args):
+    def calc_accuracy(self, result_dict, gt_dict):
 
         if self.type == "Detection":
-            return self.calc_accuracy_detection(result_dict, gt_dict, args)
+            return self.calc_accuracy_detection(result_dict, gt_dict)
         elif self.type == "Keypoint":
-            return self.calc_accuracy_keypoint(result_dict, gt_dict, args)
+            return self.calc_accuracy_keypoint(result_dict, gt_dict)
 
     # def calc_accuracy_loss(self, image, gt, args):
 
@@ -94,7 +88,7 @@ class DNN:
     #     else:
     #         raise NotImplementedError()
 
-    def calc_accuracy_detection(self, result_dict, gt_dict, args):
+    def calc_accuracy_detection(self, result_dict, gt_dict):
 
         assert (
             result_dict.keys() == gt_dict.keys()
@@ -111,8 +105,8 @@ class DNN:
             result = result_dict[fid]
             gt = gt_dict[fid]
 
-            result = self.filter_result(result, args, False)
-            gt = self.filter_result(gt, args, True)
+            result = self.filter_result(result, False)
+            gt = self.filter_result(gt, True)
 
             result = result["instances"]
             gt = gt["instances"]
@@ -137,7 +131,7 @@ class DNN:
             tp = 0
 
             for i in range(len(gt)):
-                if sum(IoU[:, i] > args.iou_threshold):
+                if sum(IoU[:, i] > getattr(settings, self.name).iou_threshold):
                     tp += 1
             fn = len(gt) - tp
             fp = len(result) - tp
@@ -188,7 +182,7 @@ class DNN:
             # "fps": fps,
         }
 
-        ret_dict.update(self.calc_feature(result_dict, args))
+        ret_dict.update(self.calc_feature(result_dict))
 
         return ret_dict
 
@@ -267,53 +261,7 @@ class DNN:
             # "fps": fps,
         }
 
-    # def calc_accuracy_loss_detection(self, result, gt, args):
-    #     # from detectron2.structures.boxes import pairwise_iou
-    #     gt = self.filter_result(gt, args, True)
-    #     result = self.filter_result(result, args, False, confidence_check=False)
-
-    #     result = result["instances"]
-    #     gt = gt["instances"].to("cuda")
-
-    #     if len(result) == 0 or len(gt) == 0:
-    #         if len(result) == 0 and len(gt) == 0:
-    #             return torch.tensor(1)
-    #         else:
-    #             return torch.tensor(0)
-
-    #     IoU = pairwise_iou(result.pred_boxes, gt.pred_boxes)
-
-    #     for i in range(len(result)):
-    #         for j in range(len(gt)):
-    #             if result.pred_classes[i] != gt.pred_classes[j]:
-    #                 IoU[i, j] = 0
-
-    #     tp = 0
-
-    #     def f(x):
-    #         a = args.alpha
-    #         x = x - args.confidence_threshold
-    #         # x == -a: 0, x == a: 1
-    #         res = (x + a) / (2 * a)
-    #         res = max(res, 0)
-    #         res = min(res, 1)
-    #         return res
-
-    #     for j in range(len(gt)):
-    #         tp_delta = 0
-    #         for i in range(len(result)):
-    #             if IoU[i, j] > args.iou_threshold:
-    #                 # IoU threshold will be hard threshold
-    #                 tp_delta += max(tp_delta, f(result.scores[i]))
-    #         tp = tp + tp_delta
-
-    #     fn = len(gt) - tp
-    #     fp = sum([f(result.scores[i]) for i in range(len(result))]) - tp
-    #     fp = max(fp, 0)
-
-    #     return -2 * tp / (2 * tp + fp + fn)
-
-    def get_undetected_ground_truth_index(self, result, gt, args):
+    def get_undetected_ground_truth_index(self, result):
 
         if self.type == "Segmentation":
             raise NotImplementedError
@@ -321,8 +269,8 @@ class DNN:
         gt = deepcopy(gt)
         result = deepcopy(result)
 
-        gt = self.filter_result(gt, args, gt=True)
-        result = self.filter_result(result, args, gt=False)
+        gt = self.filter_result(gt, gt=True)
+        result = self.filter_result(result, gt=False)
 
         result = result["instances"]
         gt = gt["instances"]
@@ -334,8 +282,8 @@ class DNN:
                     IoU[i, j] = 0
 
         return (
-            (IoU > args.iou_threshold).sum(dim=0) == 0,
-            (IoU > args.iou_threshold).sum(dim=1) == 0,
+            (IoU > getattr(settings, self.name).iou_threshold).sum(dim=0) == 0,
+            (IoU > getattr(settings, self.name).iou_threshold).sum(dim=1) == 0,
             gt,
             result,
         )
@@ -347,7 +295,7 @@ class DNN:
         else:
             raise NotImplementedError
 
-    def aggregate_inference_results_detection(self, results, args):
+    def aggregate_inference_results_detection(self, results):
 
         base = results[0]["instances"]
 
@@ -370,7 +318,7 @@ class DNN:
             val, idx = IoU.max(dim=0)
 
             # clear those scores where IoU is way too small
-            result[idx].scores[val < args.iou_threshold] = 0.0
+            result[idx].scores[val < getattr(settings, self.name).iou_threshold] = 0.0
             scores.append(result[idx].scores)
 
         scores = torch.cat([i.unsqueeze(0) for i in scores], dim=0)

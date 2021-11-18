@@ -11,6 +11,7 @@ import torch
 import yaml
 from torchvision import io
 from munch import *
+import pymongo
 
 from dnn.dnn_factory import DNN_Factory
 
@@ -20,12 +21,6 @@ from inference import inference
 import pickle
 from datetime import datetime
 
-default_config = {
-    'confidence_threshold': 0.2,
-    'gt_confidence_threshold': 0.2,
-    'iou_threshold': 0.5
-}
-default_config = munchify(default_config)
 
 def transform(result, lengt):
 
@@ -44,7 +39,7 @@ def transform(result, lengt):
 
 
 
-def examine(x_args, gt_args, x_app, db, force=False, config=default_config):
+def examine(x_args, gt_args, x_app, db, force=False):
 
     assert isinstance(x_args, Munch)
     assert isinstance(gt_args, Munch)
@@ -77,15 +72,15 @@ def examine(x_args, gt_args, x_app, db, force=False, config=default_config):
     # set_trace()
     
      
-    metrics =  x_app.calc_accuracy(x_dict, gt_dict, config)
+    metrics =  x_app.calc_accuracy(x_dict, gt_dict)
     
     del x['inference_result']
     del x['timestamp']
 
     x['timestamp'] = str(datetime.now())
     x.update(metrics)
-    x.update(config)
     x.update({'ground_truth': gt_args})
+    x.update({'norm_bw': x['bw'] * 1.0 / gt['bw']})
 
     db['stats'].insert_one(x)
     
