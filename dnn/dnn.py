@@ -26,6 +26,7 @@ class DNN:
     def filter_result(
         self,
         result,
+        gt=False,
         confidence_check=True,
         require_deepcopy=False,
         class_check=True,
@@ -45,13 +46,16 @@ class DNN:
         else:
             inds = scores > -1
 
-        # if confidence_check:
-        #    if gt:
-        #        inds = inds & (scores > args.gt_confidence_threshold)
-        #    else:
-        #        inds = inds & (scores > args.confidence_threshold)
+            
+        args = getattr(settings, self.name)
 
-        inds = inds & (scores > getattr(settings, self.name).confidence_threshold)
+        if confidence_check:
+           if gt:
+               inds = inds & (scores > args.gt_confidence_threshold)
+           else:
+               inds = inds & (scores > args.confidence_threshold)
+
+        # inds = inds & (scores > getattr(settings, self.name).confidence_threshold)
 
         # result["instances"] = result["instances"][inds]
 

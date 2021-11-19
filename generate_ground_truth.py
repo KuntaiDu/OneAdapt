@@ -14,6 +14,7 @@ from inference import inference
 
 from dnn.dnn_factory import DNN_Factory
 import pymongo
+import coloredlogs
 
 from config import settings
 
@@ -45,7 +46,12 @@ db = pymongo.MongoClient("mongodb://localhost:27017/")[settings.collection_name]
 
 if __name__ == "__main__":
 
-    logger = logging.getLogger("mpeg_curve")
+    logger = logging.getLogger("gt")
+
+    coloredlogs.install(
+        fmt="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s[%(lineno)s] -- %(message)s",
+        level="INFO",
+    )
 
     app = DNN_Factory().get_model(gt_config.app)
 

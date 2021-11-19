@@ -20,7 +20,7 @@ import time
 
 from pdb import set_trace
 from datetime import datetime
-
+from concurrent.futures import ThreadPoolExecutor
 from dnn.dnn_factory import DNN_Factory
 
 from utils.video_reader import read_video, read_video_config
@@ -33,8 +33,11 @@ from datetime import datetime
 import pymongo
 import subprocess
 import pickle
+import numpy as np
 
 from config import settings
+from reducto.differencer import reducto_differencers
+import shutil
 
 import logging
 sns.set()
@@ -49,30 +52,110 @@ __all__ = ['inference', 'encode']
 def encode(args):
 
     input_video = args.input % args.second
-    output_video = f'cache/temp_{time.time()}.mp4'
+    prefix = f"cache/temp_{time.time()}"
+    output_video = prefix + '.mp4'
+    
+    if not hasattr(args, 'reducto'):
+
+        subprocess.check_output(
+            [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "warning",
+                "-stats",
+                "-i",
+                input_video,
+                "-s",
+                f"{args.res}",
+                "-filter:v",
+                f"fps={args.fr}",
+                '-c:v', 
+                'libx264', 
+                "-qp",
+                f"{args.qp}",
+                output_video,
+            ]
+        )
+        
+    else:
+
+        assert not hasattr(args, 'fr'), 'Cannot use reducto while performing frame subsampling.'
+
+        logger = logging.getLogger('encode')
+        logger.info('Calculating frame differences')
 
 
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "warning",
-            "-stats",
-            "-i",
-            input_video,
-            "-s",
-            f"{args.res}",
-            "-filter:v",
-            f"fps={args.fr}",
-            '-c:v', 
-            'libx264', 
-            "-qp",
-            f"{args.qp}",
-            output_video,
-        ]
-    )
+        # directly read input video and calculate reducto features.
+        Path(prefix).mkdir()
+        video_name = input_video
+        video_config = read_video_config(video_name)
+        prev_frame = None
+        prev_frame_pil = None
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+
+            for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
+                
+                # convert image to cv2 format for reducto
+                cur_frame = np.array(T.ToPILImage()(frame[0]))[:, :, ::-1].copy()
+
+                if prev_frame is None:
+                    logger.info('Encode frame %d', fid)
+
+                    executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
+                    prev_frame = cur_frame
+                    prev_frame_pil = T.ToPILImage()(frame[0])
+                    
+                else:
+
+                    discard = True
+                    
+                    for differencer in reducto_differencers:
+                        if hasattr(args.reducto, differencer.feature):
+                            difference_value = differencer.cal_frame_diff(cur_frame, prev_frame)
+                            logger.info('Frame %d, feat %s, value %.5f', fid, differencer.feature, difference_value)
+                            if difference_value > getattr(args.reducto, differencer.feature):
+                                discard = False
+                                break
+
+                    if not discard:
+                        logger.info('Encode frame %d', fid)
+                        executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
+                        prev_frame = cur_frame
+                        prev_frame_pil = T.ToPILImage()(frame[0])
+                    else:
+                        executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
+
+                
+                
+
+
+
+        
+        
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "warning",
+                "-stats",
+                "-i",
+                prefix + '/%010d.png',
+                "-s",
+                f"{args.res}",
+                '-c:v', 
+                'libx264', 
+                "-qp",
+                f"{args.qp}",
+                output_video,
+            ]
+        )
+
+        shutil.rmtree(prefix)
 
     return output_video
 
@@ -114,8 +197,8 @@ def inference(args, db, app=None):
 
         else:
             
-            logger.info('Remove previous records and force inference.')
-            db['inference'].delete_many(args)
+            logger.warning('Previous inference results exist, but force inference.')
+            
 
     logger.info('Start inference.')
 
@@ -139,9 +222,6 @@ def inference(args, db, app=None):
     inference_results = {}
 
     for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
-
-        if hasattr(args, 'resize') and args.resize:
-            frame = F.interpolate(frame, size=default_size)
             
         if hasattr(args, 'gamma'):
             frame = T.functional.adjust_gamma(frame, args.gamma)

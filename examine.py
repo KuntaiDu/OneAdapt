@@ -20,6 +20,7 @@ from dnn.dnn_factory import DNN_Factory
 from inference import inference
 import pickle
 from datetime import datetime
+from config import settings
 
 
 def transform(result, lengt):
@@ -39,7 +40,7 @@ def transform(result, lengt):
 
 
 
-def examine(x_args, gt_args, x_app, db, force=False):
+def examine(x_args, gt_args, x_app, db):
 
     assert isinstance(x_args, Munch)
     assert isinstance(gt_args, Munch)
@@ -56,9 +57,14 @@ def examine(x_args, gt_args, x_app, db, force=False):
     query = x_args.copy() 
     query.update({'ground_truth': gt_args})
 
-    if force==False and db['stats'].find_one(query) is not None:
-        for x in db['stats'].find(query).sort("_id", pymongo.DESCENDING):
-            return munchify(x)
+    if db['stats'].find_one(query) is not None:
+        if not settings.examine_config.force_examine:
+            # find latest result
+            logger.info('Examine results already cached. Return.')
+            for x in db['stats'].find(query).sort("_id", pymongo.DESCENDING):
+                return munchify(x)
+        else:
+            logger.warning('Previous reexamine results exist. But force reexamine.')
     
     x = inference(x_args, db, x_app)
     gt = inference(gt_args, db)
@@ -74,8 +80,9 @@ def examine(x_args, gt_args, x_app, db, force=False):
      
     metrics =  x_app.calc_accuracy(x_dict, gt_dict)
     
-    del x['inference_result']
-    del x['timestamp']
+    del x.inference_result
+    del x.timestamp
+    del x._id
 
     x['timestamp'] = str(datetime.now())
     x.update(metrics)

@@ -9,6 +9,7 @@ import yaml
 def read_video(video_name):
 
     container = av.open(video_name)
+    container.streams.video[0].thread_type = 'AUTO'
     frames = []
     fid = 0
 

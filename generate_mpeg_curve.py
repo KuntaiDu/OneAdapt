@@ -9,6 +9,7 @@ from pdb import set_trace
 
 from utils.results import read_results
 from itertools import product
+import coloredlogs
 
 from inference import inference
 from examine import examine
@@ -34,14 +35,17 @@ db = pymongo.MongoClient("mongodb://localhost:27017/")[settings.collection_name]
 
 if __name__ == "__main__":
 
+    coloredlogs.install(
+        fmt="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s[%(lineno)s] -- %(message)s",
+        level="INFO",
+    )
+
     logger = logging.getLogger("mpeg_curve")
 
     # for app_name in app_name_list: 
     # for app_name in ['EfficientDet-d8']:
     # for gamma in [0.5, 0.6, 0.7, 0.8, 0.9]:
-    for idx, gamma in enumerate([0.5, 0.6, 0.7, 0.8, 0.9, 1.01, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9]):
-        if idx % 3 != 2:
-            continue
+    for pixel_thresh in [ 0.4, 0.3, 0.2]:
 
         app = DNN_Factory().get_model(gt_config.app)
 
@@ -54,7 +58,9 @@ if __name__ == "__main__":
             })
 
             x_args = gt_args.copy()
-            x_args.gamma = gamma 
+            del x_args.fr
+            x_args.reducto = Munch()
+            x_args.reducto.pixel = pixel_thresh
 
             examine(x_args,gt_args,app,db)
         

@@ -1,0 +1,35 @@
+
+video_name = 'videos/dashcam/dashcam_126/part%d.mp4'
+num_segments = 61
+collection_name = 'Nov19_reducto'
+
+
+[ground_truths_config]
+app = 'EfficientDet_d2'
+qp = 0
+res = '1280:720'
+fr = 10
+gamma = 1.0
+
+
+[inference_config]
+force_inference = false
+enable_visualization = false
+visualize_step_size = 1
+
+[examine_config]
+force_examine = false
+
+
+
+
+[postprocess]
+size_threshold = 0.08
+
+
+
+[EfficientDet_d2]
+confidence_threshold = 0.2
+gt_confidence_threshold = 0.2
+class_ids = [0, 1, 2, 3, 4, 6]
+iou_threshold = 0.5
