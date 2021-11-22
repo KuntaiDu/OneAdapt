@@ -14,9 +14,6 @@ from inference import inference
 
 from dnn.dnn_factory import DNN_Factory
 import pymongo
-import coloredlogs
-
-from config import settings
 
 # gt_qp = 24
 # qp_list = [24]
@@ -33,40 +30,39 @@ from config import settings
 
 # gt = 'qp_24_fr_30_res_720'
 
-gt_config = munchify(settings.ground_truths_config)
+gt_config = {
+    'app': 'EfficientDet-d8',
+    'qp': '0',
+    'res': '1280:720',
+    'fr': '10',
+}
+gt_config = munchify(gt_config)
 
 
+video_name = 'videos/dashcam/dashcam_3/part%d.mp4'
+total_sec = 12
 
-video_name = settings.video_name
-total_sec = settings.num_segments
-db = pymongo.MongoClient("mongodb://localhost:27017/")[settings.collection_name]
+mongodb_uri = os.getenv('MONGODB_URI', default='mongodb://localhost:27017')
 
-# settings.inference_config.enable_visualization = True
+db = pymongo.MongoClient("mongodb://localhost:27017/")["diff_EfficientDet_test"]
+# db = pymongo.MongoClient("mongodb://localhost:27017")["diff_EfficientDet"]
 
 
 if __name__ == "__main__":
 
-    logger = logging.getLogger("gt")
-
-    coloredlogs.install(
-        fmt="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s[%(lineno)s] -- %(message)s",
-        level="INFO",
-    )
+    logger = logging.getLogger("mpeg_curve")
 
     app = DNN_Factory().get_model(gt_config.app)
 
     for sec in range(total_sec):
 
-        for gamma in [1.0]:
+        args = gt_config.copy()
+        args.update({
+            'input': video_name,
+            'second': sec
+        })
 
-            args = gt_config.copy()
-            args.update({
-                'input': video_name,
-                'second': sec,
-                'gamma': gamma
-            })
-
-            inference(args, db, app)
+        inference(args, db, app)
 
         
 

@@ -2,7 +2,7 @@
 import torch
 from munch import *
 from pdb import set_trace
-
+import numpy as np
 __all__ = ['get_frame_features', 'get_features']
 
 
@@ -39,16 +39,18 @@ feature_list = [
 
 def get_frame_features(scores, args):
     
-
-
+    assert isinstance(args, Munch)
     feat = torch.cat(
-        [
-            scores.sum()[None], 
-            ((scores - args.confidence_threshold) * 10).sigmoid().sum()[None],
-            (scores > args.confidence_threshold).float().sum()[None],
-            ],
-        )
-    
+        [scores.sum()[None], 
+        ((scores - args.confidence_threshold) * 10).sigmoid().sum()[None]])
+    # temp = (scores- args.confidence_threshold) * 10 
+    # if len(temp) == 0:
+    #     return None
+    # score = torch.sigmoid((scores- args.confidence_threshold) * 10 )
+
+    # feat = torch.cat(
+    #     [scores.sum()[None], 
+    #     torch.sum(torch.sigmoid((scores - args.confidence_threshold) * 10 ))[None] ])
     return feat.unsqueeze(0)
 
 

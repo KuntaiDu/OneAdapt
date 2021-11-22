@@ -9,7 +9,6 @@ import yaml
 def read_video(video_name):
 
     container = av.open(video_name)
-    container.streams.video[0].thread_type = 'AUTO'
     frames = []
     fid = 0
 
@@ -23,7 +22,7 @@ def read_video(video_name):
 #     return container.streams.video[0].frames
 
 def read_video_config(video_name):
-
+    print("Video name is!!!!!!!", video_name)
     if Path(video_name).exists():
         container = av.open(video_name)
 
