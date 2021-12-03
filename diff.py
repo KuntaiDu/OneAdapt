@@ -44,14 +44,7 @@ sns.set()
 
 
 
-conf.space = {
-    'qp': [24, 27, 30, 36],
-    'fr': [30, 10, 3],
-    'res': [720, 480, 360, 240]
-    # 'qp': [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
-    # 'fr': [30],
-    # 'res': [720],
-}
+conf.space = munchify(settings.configuration_space)
 state = {}
 
 len_gt_video = 10
@@ -59,8 +52,7 @@ len_gt_video = 10
 
 
 # default_size = (800, 1333)
-conf.serialize_order = ['gamma']
-
+conf.serialize_order = list(conf.space.keys())
 
 
 
@@ -89,7 +81,7 @@ def read_average_from_config(gt_args: Munch, state, app: DNN, db: pymongo.databa
     
     for args, prob in conf.serialize_all_states(gt_args.copy(), conf.state2config(state), torch.tensor(1.), conf.serialize_order):
         # encode
-        args['gamma'] = 1.0
+        # args['gamma'] = 1.0
         video_name = encode(args)
         video = list(read_video(video_name))
         video = torch.cat([i[1] for i in video])

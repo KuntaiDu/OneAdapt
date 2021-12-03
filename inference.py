@@ -55,7 +55,13 @@ def encode(args):
     prefix = f"cache/temp_{time.time()}"
     output_video = prefix + '.mp4'
     
-    if not hasattr(args, 'reducto'):
+    has_reducto = False
+    for differencer in reducto_differencers:
+        if hasattr(args, 'reducto_' + differencer.feature):
+            has_reducto = True
+            break
+    
+    if not has_reducto:
 
         subprocess.check_output(
             [
@@ -79,6 +85,8 @@ def encode(args):
             ]
         )
         
+        remaining_frames = None # no filtering there.
+        
     else:
 
         assert not hasattr(args, 'fr'), 'Cannot use reducto while performing frame subsampling.'
@@ -93,6 +101,8 @@ def encode(args):
         video_config = read_video_config(video_name)
         prev_frame = None
         prev_frame_pil = None
+        
+        remaining_frames = 0
 
         with ThreadPoolExecutor(max_workers=3) as executor:
 
@@ -108,15 +118,17 @@ def encode(args):
                     prev_frame = cur_frame
                     prev_frame_pil = T.ToPILImage()(frame[0])
                     
+                    remaining_frames = 1
+                    
                 else:
 
                     discard = True
                     
                     for differencer in reducto_differencers:
-                        if hasattr(args.reducto, differencer.feature):
-                            difference_value = differencer.cal_frame_diff(cur_frame, prev_frame)
+                        if hasattr(args, 'reducto_' + differencer.feature):
+                            difference_value = differencer.cal_frame_diff(differencer.get_frame_feature(cur_frame), differencer.get_frame_feature(prev_frame))
                             logger.info('Frame %d, feat %s, value %.5f', fid, differencer.feature, difference_value)
-                            if difference_value > getattr(args.reducto, differencer.feature):
+                            if difference_value > getattr(args, 'reducto_' + differencer.feature):
                                 discard = False
                                 break
 
@@ -125,11 +137,12 @@ def encode(args):
                         executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
                         prev_frame = cur_frame
                         prev_frame_pil = T.ToPILImage()(frame[0])
+                        remaining_frames += 1
                     else:
                         executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
 
                 
-                
+        logger.info('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % remaining_frames)
 
 
 
@@ -157,7 +170,7 @@ def encode(args):
 
         shutil.rmtree(prefix)
 
-    return output_video
+    return output_video, remaining_frames
 
 
     
@@ -210,7 +223,7 @@ def inference(args, db, app=None):
         
 
     assert app is not None and app.name == args.app
-    video_name = encode(args)
+    video_name, remaining_frames = encode(args)
     video_config = read_video_config(video_name)
 
 
@@ -250,6 +263,7 @@ def inference(args, db, app=None):
     args.update({
         'inference_result': pickle.dumps(inference_results),
         'timestamp': str(datetime.now()),
+        'remaining_frames': remaining_frames,
     })
     args.update(video_config)
     # insert result to database

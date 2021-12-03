@@ -1,7 +1,26 @@
 
 video_name = 'videos/dashcam/dashcam_126/part%d.mp4'
-num_segments = 61
-collection_name = 'Nov19_reducto'
+# num_segments = 61
+num_segments = 5
+collection_name = 'Nov30_reducto_diff'
+
+[configuration_space]
+# qp = [24, 27, 30, 36]
+# fr = [30, 10, 3]
+# res = [720, 480, 360, 240]
+
+reducto_pixel = [0.2, 0.25, 0.3, 0.35, 0.4]
+reducto_area = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+reducto_edge = [0.0075, 0.008, 0.0085, 0.009, 0.0095]
+
+
+[backprop]
+reducto_pixel = 1
+reducto_area = 1
+reducto_edge = 1
+# Profile one time out of freq many times
+freq = 1 
+lr = 0.003 
 
 
 [ground_truths_config]
@@ -9,7 +28,6 @@ app = 'EfficientDet_d2'
 qp = 0
 res = '1280:720'
 fr = 10
-gamma = 1.0
 
 
 [inference_config]

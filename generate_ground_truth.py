@@ -57,16 +57,13 @@ if __name__ == "__main__":
 
     for sec in range(total_sec):
 
-        for gamma in [1.0]:
+        args = gt_config.copy()
+        args.update({
+            'input': video_name,
+            'second': sec,
+        })
 
-            args = gt_config.copy()
-            args.update({
-                'input': video_name,
-                'second': sec,
-                'gamma': gamma
-            })
-
-            inference(args, db, app)
+        inference(args, db, app)
 
         
 

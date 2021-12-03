@@ -8,6 +8,7 @@ __pycache__/
 
 # log files
 *.log
+runs/
 
 # downloaded weights
 *.pth
@@ -25,3 +26,5 @@ tmp/
 
 # temp mp4s
 tmp/*
+# Ignore dynaconf secret files
+.secrets.*

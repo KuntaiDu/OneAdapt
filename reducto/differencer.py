@@ -30,12 +30,11 @@ class PixelDiff:
 
 class AreaDiff:
 
-    feature = 'area'
-
     def __init__(self, thresh=.0, fraction=.0, dataset=None):
-        super().__init__(thresh, fraction, dataset)
-        self.name = f'{self.feature}-{self.thresh}-{self.fraction}'
-        self._load_section(self.section)
+        self.area_blur_rad = 11
+        self.area_blur_var = 0
+        self.area_thresh_low_bound = 21
+        self.feature = 'area'
 
     def get_frame_feature(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -55,21 +54,18 @@ class AreaDiff:
         if not contours:
             return 0.0
         return max([cv2.contourArea(c) / total_pixels for c in contours])
-
-    def _load_section(self, section):
-        self.area_blur_rad = section.getint('AREA_BLUR_RAD', 11)
-        self.area_blur_var = section.getint('EDGE_BLUR_VAR', 0)
-        self.area_thresh_low_bound = section.getint('AREA_THRESH_LOW_BOUND', 21)
+       
 
 
 class EdgeDiff:
 
-    feature = 'edge'
-
     def __init__(self, thresh=.0, fraction=.0, dataset=None):
-        super().__init__(thresh, fraction, dataset)
-        self.name = f'{self.feature}-{self.thresh}-{self.fraction}'
-        self._load_section(self.section)
+        self.edge_blur_rad = 11
+        self.edge_blur_var = 0
+        self.edge_canny_low = 101
+        self.edge_canny_high = 255
+        self.edge_thresh_low_bound = 21
+        self.feature = 'edge'
 
     def get_frame_feature(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -86,23 +82,17 @@ class EdgeDiff:
         changed_pixels = cv2.countNonZero(frame_diff)
         fraction_changed = changed_pixels / total_pixels
         return fraction_changed
-
-    def _load_section(self, section):
-        self.edge_blur_rad = section.getint('EDGE_BLUR_RAD', 11)
-        self.edge_blur_var = section.getint('EDGE_BLUR_VAR', 0)
-        self.edge_canny_low = section.getint('EDGE_CANNY_LOW', 101)
-        self.edge_canny_high = section.getint('EDGE_CANNY_HIGH', 255)
-        self.edge_thresh_low_bound = section.getint('EDGE_THRESH_LOW_BOUND', 21)
+        
 
 
 class CornerDiff:
 
-    feature = 'corner'
 
     def __init__(self, thresh=.0, fraction=.0, dataset=None):
-        super().__init__(thresh, fraction, dataset)
-        self.name = f'{self.feature}-{self.thresh}-{self.fraction}'
-        self._load_section(self.section)
+        self.feature = 'corner'
+        self.corner_block_size = 5
+        self.corner_ksize = 3
+        self.corner_k = 0.05
 
     def get_frame_feature(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -118,19 +108,14 @@ class CornerDiff:
         fraction_changed = changed_pixels / total_pixels
         return fraction_changed
 
-    def _load_section(self, section):
-        self.corner_block_size = section.getint('CORNER_BLOCK_SIZE', 5)
-        self.corner_ksize = section.getint('CORNER_KSIZE', 3)
-        self.corner_k = section.getfloat('CORNER_K', 0.05)
+        
 
 
 class HistDiff:
 
-    feature = 'histogram'
-
     def __init__(self, thresh=.0, fraction=.0, dataset=None):
-        super().__init__(thresh, fraction, dataset)
-        self.name = f'{self.feature}-{self.thresh}-{self.fraction}'
+        self.feature = 'histogram'
+        self.hist_nb_bins = 32
 
     def get_frame_feature(self, frame):
         nb_channels = frame.shape[-1]
@@ -144,17 +129,18 @@ class HistDiff:
     def cal_frame_diff(self, frame, prev_frame):
         return cv2.compareHist(frame, prev_frame, cv2.HISTCMP_CHISQR)
 
-    def _load_section(self, section):
-        self.hist_nb_bins = section.getint('HIST_NB_BINS', 32)
+        
 
 
 class HOGDiff:
 
-    feature = 'HOG'
 
     def __init__(self, thresh=.0, fraction=.0, dataset=None):
-        super().__init__(thresh, fraction, dataset)
-        self.name = f'{self.feature}-{self.thresh}-{self.fraction}'
+        self.feature = 'HOG'
+        self.hog_resize = 512
+        self.hog_orientations = 10
+        self.hog_pixel_cell = 5
+        self.hog_cell_block = 2
 
     def get_frame_feature(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -171,20 +157,14 @@ class HOGDiff:
         dis /= frame.shape[0]
         return dis
 
-    def _load_section(self, section):
-        self.hog_resize = section.getint('HOG_RESIZE', 512)
-        self.hog_orientations = section.getint('HOG_ORIENTATIONS', 10)
-        self.hog_pixel_cell = section.getint('HOG_PIXEL_CELL', 5)
-        self.hog_cell_block = section.getint('HOG_CELL_BLOCK', 2)
+        
 
 
 class SIFTDiff:
 
-    feature = 'SIFT'
 
     def __init__(self, thresh=.0, fraction=.0, dataset=None):
-        super().__init__(thresh, fraction, dataset)
-        self.name = f'{self.feature}-{self.thresh}-{self.fraction}'
+        self.feature = 'SIFT'
 
     def get_frame_feature(self, frame):
         sift = cv2.xfeatures2d.SIFT_create()
@@ -205,9 +185,8 @@ class SURFDiff:
     feature = 'SURF'
 
     def __init__(self, thresh=.0, fraction=.0, dataset=None):
-        super().__init__(thresh, fraction, dataset)
-        self._load_section(self.section)
-        self.name = f'{self.feature}-{self.thresh}-{self.fraction}'
+        self.feature = 'SURF'
+        self.surf_hessian_thresh = 400
 
     def get_frame_feature(self, frame):
         surf = cv2.xfeatures2d.SURF_create()
@@ -222,10 +201,16 @@ class SURFDiff:
         dis = np.linalg.norm(frame - prev_frame)
         dis /= frame.shape[0]
         return dis
-
-    def _load_section(self, section):
-        self.surf_hessian_thresh = section.getint('SURF_HESSIAN_THRESH', 400)
+        
 
 
 
-reducto_differencers = [PixelDiff()]
+reducto_differencers = [
+    PixelDiff(), 
+    AreaDiff(), 
+    EdgeDiff(), 
+    CornerDiff(),
+    HistDiff(), 
+    HOGDiff(),
+    SIFTDiff(),
+    SURFDiff()]
