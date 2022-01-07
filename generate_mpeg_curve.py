@@ -22,8 +22,8 @@ from config import settings
 
 
 
-gt_config = settings.ground_truths_config
-gt_config = munchify(gt_config)
+
+gt_config = munchify(settings.ground_truths_config.to_dict())
 
 
 video_name = settings.video_name

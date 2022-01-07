@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dnn.dnn_factory import DNN_Factory
 
 from utils.video_reader import read_video, read_video_config
-from utils.results import write_results
+# from utils.results import write_results
 
 from knob.control_knobs import framerate_control, quality_control
 from tqdm import tqdm
@@ -40,6 +40,7 @@ from reducto.differencer import reducto_differencers
 import shutil
 
 import logging
+import utils.config_utils as conf
 sns.set()
 
 
@@ -55,6 +56,7 @@ def encode(args):
     prefix = f"cache/temp_{time.time()}"
     output_video = prefix + '.mp4'
     
+    
     has_reducto = False
     for differencer in reducto_differencers:
         if hasattr(args, 'reducto_' + differencer.feature):
@@ -63,6 +65,9 @@ def encode(args):
     
     if not has_reducto:
 
+
+        assert hasattr(args, 'fr')
+
         subprocess.check_output(
             [
                 "ffmpeg",
@@ -70,7 +75,7 @@ def encode(args):
                 "-hide_banner",
                 "-loglevel",
                 "warning",
-                "-stats",
+                # "-stats",
                 "-i",
                 input_video,
                 "-s",
@@ -85,14 +90,17 @@ def encode(args):
             ]
         )
         
-        remaining_frames = None # no filtering there.
+        video_config = read_video_config(input_video)
+        remaining_frames = set(range(video_config['#frames'])) # no filtering there.
         
     else:
 
-        assert not hasattr(args, 'fr'), 'Cannot use reducto while performing frame subsampling.'
+        assert args.fr == settings.ground_truths_config.fr, 'The frame rate of reducto must align with the ground truth.'
 
         logger = logging.getLogger('encode')
-        logger.info('Calculating frame differences')
+        logger.debug('Calculating frame differences')
+
+        logger.info(f'Encode with {args}')
 
 
         # directly read input video and calculate reducto features.
@@ -102,23 +110,24 @@ def encode(args):
         prev_frame = None
         prev_frame_pil = None
         
-        remaining_frames = 0
+        remaining_frames = set()
 
         with ThreadPoolExecutor(max_workers=3) as executor:
 
-            for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
+            # for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
+            for fid, frame in read_video(video_name):
                 
                 # convert image to cv2 format for reducto
                 cur_frame = np.array(T.ToPILImage()(frame[0]))[:, :, ::-1].copy()
 
                 if prev_frame is None:
-                    logger.info('Encode frame %d', fid)
+                    logger.debug('Encode frame %d', fid)
 
                     executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
                     prev_frame = cur_frame
                     prev_frame_pil = T.ToPILImage()(frame[0])
                     
-                    remaining_frames = 1
+                    remaining_frames = remaining_frames | {fid}
                     
                 else:
 
@@ -127,22 +136,22 @@ def encode(args):
                     for differencer in reducto_differencers:
                         if hasattr(args, 'reducto_' + differencer.feature):
                             difference_value = differencer.cal_frame_diff(differencer.get_frame_feature(cur_frame), differencer.get_frame_feature(prev_frame))
-                            logger.info('Frame %d, feat %s, value %.5f', fid, differencer.feature, difference_value)
+                            logger.debug('Frame %d, feat %s, value %.5f', fid, differencer.feature, difference_value)
                             if difference_value > getattr(args, 'reducto_' + differencer.feature):
                                 discard = False
                                 break
 
                     if not discard:
-                        logger.info('Encode frame %d', fid)
+                        logger.debug('Encode frame %d', fid)
                         executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
                         prev_frame = cur_frame
                         prev_frame_pil = T.ToPILImage()(frame[0])
-                        remaining_frames += 1
+                        remaining_frames = remaining_frames | {fid}
                     else:
                         executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
 
                 
-        logger.info('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % remaining_frames)
+        logger.debug('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % len(remaining_frames))
 
 
 
@@ -155,7 +164,7 @@ def encode(args):
                 "-hide_banner",
                 "-loglevel",
                 "warning",
-                "-stats",
+                # "-stats",
                 "-i",
                 prefix + '/%010d.png',
                 "-s",
@@ -190,7 +199,7 @@ def inference(args, db, app=None):
     for key in args:
         args_string += f'{key}_{args[key]}_'
     args = args.copy()
-    logger.info('Try inference on %s', args_string)
+    logger.debug('Try inference on %s', args_string)
 
     logger = logging.getLogger("inference")
     handler = logging.NullHandler()
@@ -204,7 +213,7 @@ def inference(args, db, app=None):
 
         if not config.force_inference:
 
-            logger.info('Inference results already cached. Return.')
+            logger.debug('Inference results already cached. Return.')
             for x in db['inference'].find(args).sort("_id", pymongo.DESCENDING):
                 return munchify(x)
 
@@ -213,16 +222,16 @@ def inference(args, db, app=None):
             logger.warning('Previous inference results exist, but force inference.')
             
 
-    logger.info('Start inference.')
+    logger.debug('Start inference.')
 
     # prepare for inference
     
     if config.enable_visualization:
-        logger.info('Launch visualization')
+        logger.debug('Launch visualization')
         writer = SummaryWriter('runs/'+ args_string)
         
 
-    assert app is not None and app.name == args.app
+    assert app is not None and app.name == args.app, f'{args}'
     video_name, remaining_frames = encode(args)
     video_config = read_video_config(video_name)
 
@@ -230,32 +239,41 @@ def inference(args, db, app=None):
 
 
     # inference
-    logger.info("Running %s", args_string)
+    logger.debug("Running %s", args_string)
 
     inference_results = {}
 
-    for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
+    if args.cloudseg:
+        logger.info('CloudSeg enabled. Will perform SR.')
+
+    with torch.no_grad():
+
+        for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
+                
+            if hasattr(args, 'gamma'):
+                frame = T.functional.adjust_gamma(frame, args.gamma)
+
+            if args.cloudseg:
+                
+                frame = conf.SR_dnn(frame.to('cuda:1')).cpu()
+
+            inference_results[fid] = app.inference(frame, grad=False, detach=True, dryrun=False)
+
             
-        if hasattr(args, 'gamma'):
-            frame = T.functional.adjust_gamma(frame, args.gamma)
+                
 
-        inference_results[fid] = app.inference(frame, grad=False, detach=True, dryrun=False)
+            if config.enable_visualization and fid % config.visualize_step_size == 0:
 
-        
-            
+                logger.debug('Visualizing frame %d...', fid)
+                image = T.ToPILImage()(frame[0])
+                from PIL import Image
 
-        if config.enable_visualization and fid % config.visualize_step_size == 0:
-
-            logger.info('Visualizing frame %d...', fid)
-            image = T.ToPILImage()(frame[0])
-            from PIL import Image
-
-            writer.add_image("decoded_image", T.ToTensor()(image), fid)
-            # filtered = inference_results[fid]
-            # set_trace()
-            filtered = app.filter_result(inference_results[fid])
-            image = app.visualize(image, filtered)
-            writer.add_image("inference_result", T.ToTensor()(image), fid)
+                writer.add_image("decoded_image", T.ToTensor()(image), fid)
+                # filtered = inference_results[fid]
+                # set_trace()
+                filtered = app.filter_result(inference_results[fid])
+                image = app.visualize(image, filtered)
+                writer.add_image("inference_result", T.ToTensor()(image), fid)
 
 
 
@@ -263,7 +281,8 @@ def inference(args, db, app=None):
     args.update({
         'inference_result': pickle.dumps(inference_results),
         'timestamp': str(datetime.now()),
-        'remaining_frames': remaining_frames,
+        'remaining_frames': list(remaining_frames),
+        '#remaining_frames': len(remaining_frames),
     })
     args.update(video_config)
     # insert result to database

@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import torch.nn.functional as F
+import pickle
 import torchvision.transforms as T
 from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
@@ -22,6 +23,7 @@ from utils.visualize_utils import visualize_heat_by_summarywriter
 from torchvision import io
 from datetime import datetime
 import random
+import torchvision
 
 import yaml
 from config import settings
@@ -55,7 +57,7 @@ logger = logging.getLogger("diff")
 
 
 # default_size = (800, 1333)
-conf.serialize_order = list(conf.space.keys())
+conf.serialize_order = list(settings.backprop.tunable_config.keys())
 
 
 
@@ -77,6 +79,7 @@ def read_expensive_from_config(gt_args: Munch, state, app: DNN, db: pymongo.data
     # ret = defaultdict(lambda: 0)
     
     for args in conf.serialize_most_expensive_state(gt_args.copy(), conf.state2config(state), conf.serialize_order):
+
 
         # encode
         # args['gamma'] = 1.0
@@ -183,10 +186,10 @@ def optimize(args: dict, key: str, grad: torch.Tensor):
     
     check()
 
-                    
 
-    
-    
+
+
+
 
 
 
@@ -218,14 +221,28 @@ def main(args):
         Path(args.output).unlink()
         
     # initialize configurations pace.
+    parameters = []
     for key in settings.backprop.tunable_config.keys():
+        if key == 'cloudseg':
+            parameters.append({
+                "params": conf.SR_dnn.net.parameters(), 
+                "lr": settings.backprop.tunable_config_lr[key]
+            })
+            continue
         state[key] = torch.tensor(settings.backprop.tunable_config[key])
+        parameters.append({
+            "params": state[key],
+            "lr": settings.backprop.tunable_config_lr[key]
+        })
 
 
     # build optimizer
     for tensor in state.values():
         tensor.requires_grad = True
-    optimizer = torch.optim.Adam(state.values(), lr=settings.backprop.lr)
+    if settings.backprop.tunable_config.cloudseg:
+        for param in conf.SR_dnn.net.parameters():
+            param.requires_grad = True
+    optimizer = torch.optim.Adam(parameters, lr=settings.backprop.lr)
 
 
 
@@ -239,8 +256,6 @@ def main(args):
         # sec = 0
         
         gt_args = munchify(settings.ground_truths_config.to_dict()) 
-        if 'fr' in gt_args.keys():
-            del gt_args['fr']
         gt_args.update({
             'input': args.input,
             'second': sec
@@ -248,6 +263,9 @@ def main(args):
 
         # construct average video and average bw
         ret, args, video = read_expensive_from_config(gt_args, state, app, db)
+        gt_video_name, _ = encode(gt_args)
+        gt_video = list(read_video(gt_video_name))
+        gt_video = torch.cat([i[1] for i in gt_video])
         
         # set_trace()
         # true_average_bw = ret['norm_bw'].item()
@@ -262,15 +280,28 @@ def main(args):
         
         if 'gamma' in state:
             video = (video ** state['gamma']).clamp(0, 1)
+
+        
             
-            
+                
+                    
+
+        # conf.SR_dnn.net.train()
         video.requires_grad = True
         scores = {}
-        for idx, frame in enumerate(tqdm(video)):
-            with torch.no_grad():
-                result = app.inference(frame[None, :, :, :], detach=False, grad=False)
-                score = torch.sum(result["instances"].scores)
-                scores[idx] = score
+        args.cloudseg = True
+        args.approach = 'Backprop'
+        result = pickle.loads(inference(args, db, app)['inference_result'])
+        # for idx, frame in enumerate(tqdm(video)):
+        #     with torch.no_grad():
+        #         if settings.backprop.tunable_config.cloudseg:
+        #             frame = conf.SR_dnn(frame.unsqueeze(0).to('cuda:1')).cpu()
+        #         result = app.inference(frame, detach=True, grad=False)
+        #         score = torch.sum(result["instances"].scores)
+        #         scores[idx] = score
+        scores = {}
+        for idx in result:
+            scores[key] = torch.sum(result[idx]['instances'].scores)
 
         # interpolated_fr = conf.state2config(state)['fr']
         # interpolated_fr = interpolated_fr[0][0] * interpolated_fr[0][1] + interpolated_fr[1][0] * interpolated_fr[1][1]
@@ -286,6 +317,8 @@ def main(args):
         # print(interpolated_fr)
         # video.retain_grad()
 
+        visualize_frames = []
+
 
         if settings.backprop.train:
             # backprop on bw
@@ -295,22 +328,45 @@ def main(args):
 
             # backprop on each frame
             for idx, frame in enumerate(tqdm(video)):
-                result = app.inference(frame[None, :, :, :], detach=False, grad=True)
+                gt_frame = gt_video[idx]
+                if settings.backprop.tunable_config.cloudseg:
+                    # conf.SR_dnn.net.train()
+                    frame = conf.SR_dnn(frame.unsqueeze(0).to('cuda:1')).cpu()
+
+                frame_detached = frame.detach()
+                frame_detached.requires_grad_()
+                result = app.inference(frame_detached, detach=False, grad=True)
                 score = torch.sum(result["instances"].scores)
-
-                partial_sum_score_mean = (1/len_gt_video) * score
-                def temp(i):
-                    if i != idx:
-                        return scores[i]
-                    else:
-                        return score
-                partial_std_score_mean = torch.cat([temp(i).unsqueeze(0) for i in scores.keys()]).var(unbiased=False)
                 
-                # set_trace()
+                score.backward()
 
-                # set_trace()
+                reconstruction_loss = (frame_detached.grad.abs() * (gt_frame - frame).abs()).sum()
+                reconstruction_loss.backward()
 
-                (-(settings.backprop.sum_score_mean_weight * partial_sum_score_mean + settings.backprop.std_score_mean_weight * partial_std_score_mean)).backward()
+
+                visualize_heat_by_summarywriter(T.ToPILImage()(frame.detach()[0]), frame_detached.grad.abs()[0].sum(dim=0), 'Heat', writer, sec*10+idx, tile=False)
+
+
+
+                # partial_sum_score_mean = (1/len_gt_video) * score
+                # def temp(i):
+                #     if i != idx:
+                #         return scores[i]
+                #     else:
+                #         return score
+                # partial_std_score_mean = torch.cat([temp(i).unsqueeze(0) for i in scores.keys()]).var(unbiased=False)
+                
+                # # set_trace()
+
+                # # set_trace()
+
+                # (-(settings.backprop.sum_score_mean_weight * partial_sum_score_mean + settings.backprop.std_score_mean_weight * partial_std_score_mean)).backward()
+
+
+                T.ToPILImage()(frame[0]).save('videos/debug/dashcam_126/%010d.jpg' % (sec*10+idx))
+
+
+                
                 # (-delta_sum_score).backward()
 
             # (settings.backprop.compute_weight * interpolated_fr).backward(retain_graph=True)
@@ -332,8 +388,9 @@ def main(args):
             # last_score = score
 
         for key in settings.backprop.tunable_config.keys():
-            if key == 'cloud_seg':
-                optimize_cloudseg(args, video.grad)
+            if key == 'cloudseg':
+                # already optimized when backwarding.
+                continue
             optimize(args, key, video.grad)
 
         # if args.train:
@@ -341,19 +398,29 @@ def main(args):
         # average_sum_score = average_sum_score +  (-(1/len_gt_video) * last_score).item()
             
 
-        objective = (settings.backprop.sum_score_mean_weight * average_sum_score + settings.backprop.std_score_mean_weight * average_std_score_mean)
+
+
+        # objective = (settings.backprop.sum_score_mean_weight * average_sum_score + settings.backprop.std_score_mean_weight * average_std_score_mean)
         # true_obj = (settings.backprop.sum_score_mean_weight * true_average_score + settings.backprop.std_score_mean_weight * true_average_std_score_mean  - settings.backprop.compute_weight * interpolated_fr.detach().item())
         
         
         state_str = ""
         for key in conf.serialize_order:
+            if key == 'cloudseg':
+                param = list(conf.SR_dnn.net.parameters())[0]
+                logger.info('CloudSeg: gradient of layer 0 mean: %.3f, std: %.3f', param.grad.mean(), param.grad.std())
+                continue
             logger.info('%s : %.3f, grad: %.7f', key, state[key], state[key].grad)
             state_str += '%s : %.3f, grad: %.7f\n' % (key, state[key], state[key].grad)
 
         # logger.info('QP: %.3f, Res: %.3f, Fr: %.3f', state['qp'], state['res'], state['fr'])
         # logger.info('qpgrad: %.3f, frgrad: %.3f, resgrad: %.3f', state['qp'].grad, state['fr'].grad, state['res'].grad)
         
-        logger.info('Score: %.3f, std: %.3f, bw : %.3f, Obj: %.3f', average_sum_score, average_std_score_mean, ret['bw'], objective.item())
+        # logger.info('Score: %.3f, std: %.3f, bw : %.3f, Obj: %.3f', average_sum_score, average_std_score_mean, ret['bw'], objective.item())
+        logger.info('Reconstruction loss: %.3f', reconstruction_loss.item())
+
+        performance = examine(args, gt_args, app, db)
+        logger.info('F1: %.3f', performance['f1'])
 
         # logger.info('True : %.3f, Tru: %.3f, Tru: %.3f, Tru: %.3f', true_average_score, true_average_std_score_mean, true_average_bw, true_obj)
 
@@ -367,6 +434,8 @@ def main(args):
         for tensor in state.values():
             tensor.requires_grad = False
         for key in conf.serialize_order:
+            if key == 'cloudseg':
+                continue
             if state[key] > 1. :
                 state[key][()] = 1.
             if state[key] < 1e-7:

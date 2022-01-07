@@ -11,6 +11,7 @@ from . import carn
 class CARN:
     def __init__(self, upscale=2):
         self.net = carn.Net(multi_scale=True, group=1)
+        self.net.eval()
         self.upscale = upscale
 
         state_dict = torch.load("/tank/kuntai/code/video-compression/dnn/CARN/carn.pth")
@@ -21,12 +22,11 @@ class CARN:
             new_state_dict[name] = v
 
         self.net.load_state_dict(new_state_dict)
-        self.net.cuda()
+        self.net.to('cuda:1')
 
     def __call__(self, image):
         # import pdb; pdb.set_trace()
-        with torch.no_grad():
-            image = self.net(image, self.upscale)
+        image = self.net(image, self.upscale)
         # print(image)
         # input()
         return image

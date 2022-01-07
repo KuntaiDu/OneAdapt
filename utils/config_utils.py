@@ -1,8 +1,16 @@
 
 import random
-from examine import examine
 import torch
 from munch import *
+from pdb import set_trace
+from typing import *
+from dnn.CARN.interface import CARN
+from config import settings
+
+
+SR_dnn = None
+if settings.enable_cloudseg:
+    SR_dnn = CARN()
 # from collections import defaultdict
 # import torch
 
@@ -115,30 +123,56 @@ def serialize(prefix, config, lq_key = None):
 
     return prefix
 
-def serialize_gt(prefix):
+# def serialize_gt(prefix):
 
-    prefix = prefix
-    for key in serialize_order:
-        prefix = prefix + '_' + key + '_' + str(space[key][0])
-    return prefix + '.mp4'
+#     prefix = prefix
+#     for key in serialize_order:
+#         prefix = prefix + '_' + key + '_' + str(space[key][0])
+#     return prefix + '.mp4'
 
-def random_serialize(prefix, config):
 
-    prefix = prefix
+# def random_serialize(prefix, config):
 
-    for key in serialize_order:
+#     prefix = prefix
 
-        weight = random.random()
-        weight = 0
+#     for key in serialize_order:
 
-        if weight > config[key][0][1]:
-            prefix = prefix + '_' + key + '_' + str(config[key][1][0]) 
+#         weight = random.random()
+#         weight = 0
+
+#         if weight > config[key][0][1]:
+#             prefix = prefix + '_' + key + '_' + str(config[key][1][0]) 
+#         else:
+#             prefix = prefix + '_' + key + '_' + str(config[key][0][0])
+
+#     prefix = prefix + '.mp4'
+
+#     return prefix
+
+def serialize_most_expensive_state(ret: Munch, config: Dict, keys: List[str]) -> Munch:
+
+    if len(keys) == 0:
+
+        for key in settings.backprop.frozen_config.keys():
+            ret[key] = settings.backprop.frozen_config[key]
+        yield munchify(ret)
+    else:
+        key = keys[0]
+        if key == 'cloudseg':
+            yield from serialize_most_expensive_state(ret, config,keys[1:])
+        if isinstance(config[key], torch.Tensor):
+            # a differentiable knob. No need to discretize it.
+            ret[key] = config[key].item()
+            yield from serialize_most_expensive_state(ret, config,keys[1:])
         else:
-            prefix = prefix + '_' + key + '_' + str(config[key][0][0])
+            ret[key] = config[key][0][0]
+            yield from serialize_most_expensive_state(ret, config, keys[1:])
+            # ret[key] = config[key][1][0]
+            # yield from serialize_all_states(ret, config, prob * config[key][1][1], keys[1:])
 
-    prefix = prefix + '.mp4'
 
-    return prefix
+
+
 
 def serialize_all_states(ret, config, prob, keys):
 

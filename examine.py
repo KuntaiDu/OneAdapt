@@ -67,7 +67,7 @@ def examine(x_args, gt_args, x_app, db):
             logger.warning('Previous reexamine results exist. But force reexamine.')
     
     x = inference(x_args, db, x_app)
-    gt = inference(gt_args, db)
+    gt = inference(gt_args, db, x_app)  # will raise an error inside if the model of GT does not align with the model of x.
     
     x_dict = pickle.loads(x['inference_result'])
     gt_dict = pickle.loads(gt['inference_result'])
