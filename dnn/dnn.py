@@ -265,7 +265,7 @@ class DNN:
             # "fps": fps,
         }
 
-    def get_undetected_ground_truth_index(self, result):
+    def get_undetected_ground_truth_index(self, result, gt):
 
         if self.type == "Segmentation":
             raise NotImplementedError

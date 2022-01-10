@@ -2,7 +2,7 @@
 video_name = 'videos/dashcam/dashcam_126/part%d.mp4'
 # num_segments = 61
 num_segments = 61
-collection_name = 'Jan3_cloudseg_reconstruction_loss'
+collection_name = 'Jan6_cloudseg_reconstruction_loss'
 enable_cloudseg = true
 
 [configuration_space]
@@ -25,6 +25,7 @@ compute_weight = 0.04
 sum_score_mean_weight = 1
 freq = 1
 app = 'EfficientDet_d2'
+early_optimize = true
 
 
     [backprop.frozen_config]
@@ -39,7 +40,7 @@ app = 'EfficientDet_d2'
     cloudseg = true
 
     [backprop.tunable_config_lr]
-    cloudseg = 1e-5
+    cloudseg = 1e-4
     # app = 'EfficientDet_d2'
     # tunable_configs = ['reducto_pixel', 'reducto_area', 'reducto_edge']
     

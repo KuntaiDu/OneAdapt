@@ -193,7 +193,8 @@ def optimize(args: dict, key: str, grad: torch.Tensor):
 
 
 
-def main(args):
+def main(command_line_args):
+
 
     # a bunch of initialization.
     
@@ -203,22 +204,22 @@ def main(args):
 
     app = DNN_Factory().get_model(settings.backprop.app)
 
-    writer = SummaryWriter(f"runs/{args.output}")
+    writer = SummaryWriter(f"runs/{command_line_args.approach}")
 
-    output_path = Path(args.output)
-    if output_path.exists():
-        output_path.unlink()
+    # output_path = Path(command_line_args.output)
+    # if output_path.exists():
+    #     output_path.unlink()
     logger.info("Application: %s", app.name)
-    logger.info("Input: %s", args.input)
-    logger.info("Output: %s", args.output)
+    logger.info("Input: %s", command_line_args.input)
+    logger.info("Approach: %s", command_line_args.approach)
     progress_bar = enlighten.get_manager().counter(
-        total=args.sec,
-        desc=f"{args.input}",
+        total=command_line_args.sec,
+        desc=f"{command_line_args.input}",
         unit="10frames",
     )
 
-    if Path(args.output).exists():
-        Path(args.output).unlink()
+    # if Path(command_line_args.output).exists():
+    #     Path(command_line_args.output).unlink()
         
     # initialize configurations pace.
     parameters = []
@@ -246,7 +247,8 @@ def main(args):
 
 
 
-    for sec in tqdm(range(args.sec)):
+    # for sec in tqdm(range(10 * command_line_args.sec)):
+    for sec in range(command_line_args.start, command_line_args.end):
 
         progress_bar.update()
 
@@ -257,9 +259,11 @@ def main(args):
         
         gt_args = munchify(settings.ground_truths_config.to_dict()) 
         gt_args.update({
-            'input': args.input,
-            'second': sec
+            'input': command_line_args.input,
+            'second': sec // 10,
         })
+
+
 
         # construct average video and average bw
         ret, args, video = read_expensive_from_config(gt_args, state, app, db)
@@ -290,8 +294,9 @@ def main(args):
         video.requires_grad = True
         scores = {}
         args.cloudseg = True
-        args.approach = 'Backprop'
-        result = pickle.loads(inference(args, db, app)['inference_result'])
+        args.approach = command_line_args.approach
+        # results = pickle.loads(inference(args, db, app)['inference_result'])
+        gt_results = pickle.loads(inference(gt_args, db, app)['inference_result'])
         # for idx, frame in enumerate(tqdm(video)):
         #     with torch.no_grad():
         #         if settings.backprop.tunable_config.cloudseg:
@@ -299,9 +304,9 @@ def main(args):
         #         result = app.inference(frame, detach=True, grad=False)
         #         score = torch.sum(result["instances"].scores)
         #         scores[idx] = score
-        scores = {}
-        for idx in result:
-            scores[key] = torch.sum(result[idx]['instances'].scores)
+        # scores = {}
+        # for idx in results:
+        #     scores[key] = torch.sum(results[idx]['instances'].scores)
 
         # interpolated_fr = conf.state2config(state)['fr']
         # interpolated_fr = interpolated_fr[0][0] * interpolated_fr[0][1] + interpolated_fr[1][0] * interpolated_fr[1][1]
@@ -327,6 +332,7 @@ def main(args):
             # (args.std_score_mean_weight * (torch.tensor([scores[i] for i in scores.keys()]).std(unbiased=False) / interpolated_fr)).backward(retain_graph=True)
 
             # backprop on each frame
+            video.requires_grad = True
             for idx, frame in enumerate(tqdm(video)):
                 gt_frame = gt_video[idx]
                 if settings.backprop.tunable_config.cloudseg:
@@ -336,15 +342,36 @@ def main(args):
                 frame_detached = frame.detach()
                 frame_detached.requires_grad_()
                 result = app.inference(frame_detached, detach=False, grad=True)
-                score = torch.sum(result["instances"].scores)
+                score = result["instances"].scores
+                score_inds = (settings[app.name].confidence_threshold - 0.1 < score) & (score < settings[app.name].confidence_threshold + 0.05)
+                score = score[score_inds]
+                sum_score = torch.sum(score)
                 
-                score.backward()
+                sum_score.backward()
 
-                reconstruction_loss = (frame_detached.grad.abs() * (gt_frame - frame).abs()).sum()
+                saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
+                
+                # average across 16x16 neighbors
+                kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
+                saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
+
+                reconstruction_loss = (saliency * (gt_frame - frame).abs()).mean()
                 reconstruction_loss.backward()
 
+                if settings.backprop.early_optimize:
+                    logger.info('Early optimize')
+                    optimizer.step()
+                    optimizer.zero_grad()
 
-                visualize_heat_by_summarywriter(T.ToPILImage()(frame.detach()[0]), frame_detached.grad.abs()[0].sum(dim=0), 'Heat', writer, sec*10+idx, tile=False)
+
+                if idx == 0:
+
+
+                    gt_ind, res_ind, gt_filtered, res_filtered = app.get_undetected_ground_truth_index(results[idx], gt_results[idx])
+                    image = T.ToPILImage()(frame.detach()[0])
+                    image = app.visualize(image, {'instances': gt_filtered[gt_ind]})
+                    visualize_heat_by_summarywriter(image, saliency[0][0], 'Heat', writer, sec*10+idx, tile=False)
+                # T.ToPILImage()(frame[0]).save('videos/debug/dashcam_126/%010d.jpg' % (sec*10+idx))
 
 
 
@@ -363,7 +390,7 @@ def main(args):
                 # (-(settings.backprop.sum_score_mean_weight * partial_sum_score_mean + settings.backprop.std_score_mean_weight * partial_std_score_mean)).backward()
 
 
-                T.ToPILImage()(frame[0]).save('videos/debug/dashcam_126/%010d.jpg' % (sec*10+idx))
+                
 
 
                 
@@ -427,7 +454,7 @@ def main(args):
         # optimize
 
         # truncate
-        if settings.backprop.train and (sec + 1) % settings.backprop.freq == 0:
+        if (not settings.backprop.early_optimize) and settings.backprop.train and (sec + 1) % settings.backprop.freq == 0:
             optimizer.step()
             optimizer.zero_grad()
             
@@ -598,24 +625,38 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '--sec',
+        '--start',
         help='The total secs of the video.',
         required=True,
         type=int
     )
 
     parser.add_argument(
-        '-o',
-        '--output',
-        type=str,
-        required=True
+        '--end',
+        help='The total secs of the video.',
+        required=True,
+        type=int
     )
+
 
     parser.add_argument(
         "--app", 
         type=str, 
         help="The name of the model.", 
         default='EfficientDet-d2',
+    )
+
+    parser.add_argument(
+        "--average_window_size",
+        type=int,
+        help='The window size for saliency averaging',
+        default=17
+    )
+
+    parser.add_argument(
+        '--approach',
+        type=str,
+        required=True
     )
     # parser.add_argument(
     #     '--gamma',
