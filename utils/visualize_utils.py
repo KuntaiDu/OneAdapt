@@ -30,3 +30,4 @@ def visualize_heat_by_summarywriter(
     buf.seek(0)
     result = PIL.Image.open(buf)
     writer.add_image(tag, T.ToTensor()(result), fid)
+    plt.close(fig)

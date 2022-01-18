@@ -206,10 +206,6 @@ def main(command_line_args):
 
     writer = SummaryWriter(f"runs/{command_line_args.approach}")
 
-    conf_thresh = settings[app.name].confidence_threshold
-    conf_lb = settings[app.name].confidence_lb
-    conf_ub = settings[app.name].confidence_ub
-
     logger.info("Application: %s", app.name)
     logger.info("Input: %s", command_line_args.input)
     logger.info("Approach: %s", command_line_args.approach)
@@ -256,7 +252,7 @@ def main(command_line_args):
         gt_args = munchify(settings.ground_truths_config.to_dict()) 
         gt_args.update({
             'input': command_line_args.input,
-            'second': sec,
+            'second': sec // 10,
         })
 
 
@@ -271,10 +267,8 @@ def main(command_line_args):
         if 'gamma' in state:
             video = (video ** state['gamma']).clamp(0, 1)
 
-        # update parameters
         args.cloudseg = True
-        args.command_line_args = vars(command_line_args)
-        args.settings = settings.as_dict()
+        args.approach = command_line_args.approach
         
         # results = pickle.loads(inference(args, db, app)['inference_result'])
         gt_results = pickle.loads(inference(gt_args, db, app)['inference_result'])
@@ -301,7 +295,7 @@ def main(command_line_args):
 
 
 
-        if settings.backprop.train and sec % command_line_args.frequency == 0:
+        if settings.backprop.train:
 
             # take the gradient from the video
             # video.requires_grad = True
@@ -309,33 +303,30 @@ def main(command_line_args):
             saliencies = {}
 
             # calculate saliency on each frame.
-            if command_line_args.loss_type == 'saliency_error':
-                for idx, frame in enumerate(tqdm(video)):
-                    gt_frame = gt_video[idx]
-                    if settings.backprop.tunable_config.cloudseg:
-                        with torch.no_grad():
-                            frame = conf.SR_dnn(frame.unsqueeze(0).to('cuda:1')).cpu()
+            for idx, frame in enumerate(tqdm(video)):
+                gt_frame = gt_video[idx]
+                if settings.backprop.tunable_config.cloudseg:
+                    with torch.no_grad():
+                        frame = conf.SR_dnn(frame.unsqueeze(0).to('cuda:1')).cpu()
 
-                    frame_detached = frame.detach()
-                    frame_detached.requires_grad_()
-                    result = app.inference(frame_detached, detach=False, grad=True)
-                    # filter out unrelated classes
-                    result = app.filter_result(result, confidence_check=False)
-                    score = result["instances"].scores
-                    sum_score = ((score - conf_thresh) * 20).sigmoid().sum()
-                    # score_inds = (conf_lb < score) & (score < conf_ub)
-                    # logger.info('%d objects need for optimization.' % score_inds.sum())
-                    # score = score[score_inds]
-                    # sum_score = torch.sum(score)
-                    
-                    sum_score.backward()
+                frame_detached = frame.detach()
+                frame_detached.requires_grad_()
+                result = app.inference(frame_detached, detach=False, grad=True)
+                # filter out unrelated classes
+                result = app.filter_result(result, confidence_check=False)
+                score = result["instances"].scores
+                score_inds = (settings[app.name].confidence_threshold < score) & (score < settings[app.name].confidence_threshold + 0.1)
+                score = score[score_inds]
+                sum_score = torch.sum(score)
+                
+                sum_score.backward()
 
-                    saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
-                    
-                    # average across 16x16 neighbors
-                    kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
-                    saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
-                    saliencies[idx] = saliency
+                saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
+                
+                # average across 16x16 neighbors
+                kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
+                saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
+                saliencies[idx] = saliency
 
 
             for iteration in range(command_line_args.num_iterations):
@@ -345,116 +336,30 @@ def main(command_line_args):
                     if settings.backprop.tunable_config.cloudseg:
                         frame = conf.SR_dnn(frame.unsqueeze(0).to('cuda:1')).cpu()
 
+                    # # for visualization purpose.
+                    # result = app.inference(frame.detach(), detach=False, grad=False)
 
-                    reconstruction_loss = None
-                    result = None
-                    gt_frame = gt_video[idx].unsqueeze(0)
+                    # calculate saliency again
+                    frame_detached = frame.detach()
+                    frame_detached.requires_grad_()
+                    result = app.inference(frame_detached, detach=False, grad=True)
+                    # filter out unrelated classes
+                    result = app.filter_result(result, confidence_check=False)
+                    score = result["instances"].scores
+                    score_inds = (settings[app.name].confidence_threshold < score) & (score < settings[app.name].confidence_threshold + 0.1)
+                    score = score[score_inds]
+                    sum_score = torch.sum(score)
                     
+                    sum_score.backward()
 
+                    saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
+                    kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
+                    saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
 
-                    if command_line_args.loss_type == 'absolute_error':
-
-                        result = app.inference(frame.detach(), detach=True, grad=False)
-                        reconstruction_loss =  (gt_frame - frame).abs().mean()
-                        reconstruction_loss.backward()
-
-                    # elif command_line_args.loss_type == 'saliency_error_update':
-
-                    #     # # for visualization purpose.
-                    #     # result = app.inference(frame.detach(), detach=False, grad=False)
-
-                    #     # calculate saliency again
-                    #     frame_detached = frame.detach()
-                    #     frame_detached.requires_grad_()
-                    #     result = app.inference(frame_detached, detach=False, grad=True)
-                    #     # filter out unrelated classes
-                    #     result = app.filter_result(result, confidence_check=False)
-                    #     score = result["instances"].scores
-                    #     score_inds = (conf_lb < score < conf_ub)
-                    #     score = score[score_inds]
-                    #     sum_score = torch.sum(score)
-                        
-                    #     sum_score.backward()
-
-                    #     saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
-                    #     kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
-                    #     saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
-
-                    #     # reconstruction_loss = (saliencies[idx] * (gt_frame - frame).abs()).mean()
-                    #     reconstruction_loss = (saliency * (gt_frame - frame).abs()).mean()
-                    #     reconstruction_loss.backward()
-
-                    elif command_line_args.loss_type == 'cheat_saliency_error':
-
-                        # # for visualization purpose.
-                        # result = app.inference(frame.detach(), detach=False, grad=False)
-
-                        # calculate saliency again
-                        frame_detached = frame.detach()
-                        frame_detached.requires_grad_()
-                        result = app.inference(frame_detached, detach=False, grad=True)
-                        # filter out unrelated classes
-                        result = app.filter_result(result, confidence_check=False)
-
-                        gt_result = gt_results[idx]
-                        gt_ind, res_ind, gt_result, result = app.get_error_confidence_distribution(result, gt_result)
-
-                        in_gt = result[~res_ind]
-                        not_in_gt = result[res_ind]
-
-                        FP = in_gt[in_gt.scores < conf_thresh]
-                        FN = not_in_gt[not_in_gt.scores > conf_thresh]
-
-                        db['FP_conf'].insert_one({'confidences': FP.scores.tolist()})
-                        db['FN_conf'].insert_one({'confidences': FN.scores.tolist()})
-
-                        logger.info('%d ground truth objects missing in current inference result', gt_ind.sum().item())
-
-                        (- in_gt[in_gt.scores < conf_thresh].scores.sum() - (1 - not_in_gt[not_in_gt.conf_thresh > threshold].scores).sum()).backward()
-
-                        saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
-                        kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
-                        saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
-
-                        # reconstruction_loss = (saliencies[idx] * (gt_frame - frame).abs()).mean()
-                        reconstruction_loss = (saliency * (gt_frame - frame).abs()).mean()
-                        reconstruction_loss.backward()
-
-                        result = {'instances': result}
-
-
-                    elif command_line_args.loss_type == 'saliency_error':
-
-                        result = app.inference(frame.detach(), detach=True, grad=False)
-                        reconstruction_loss = (saliencies[idx] * (gt_frame - frame).abs()).mean()
-                        saliency = saliencies[idx]
-                        reconstruction_loss.backward()
-
-                    elif command_line_args.loss_type == 'feature_error':
-
-                        gt_result = app.inference(gt_frame, detach=False, grad=False, feature=True)
-                        frame.retain_grad()
-                        result = app.inference(frame, detach=False, grad=True, feature=True)
-
-                        feature_diffs = []
-                        for i in range(5):
-                            feature_diffs.append((gt_result['features'][i] - result['features'][i]).abs().mean())
-
-                        reconstruction_loss = sum(feature_diffs)
-                        reconstruction_loss.backward()
-                        del result['features']
-                        del gt_result['features']
-
-                        saliency = frame.grad.abs().sum(dim=1, keepdim=True)
-                        kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
-                        saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
-
-                    else:
-                        raise NotImplementedError
-
-                        
-
-
+                    # reconstruction_loss = (saliencies[idx] * (gt_video[idx].unsqueeze(0) - frame).abs()).mean()
+                    reconstruction_loss = (saliency * (gt_video[idx].unsqueeze(0) - frame).abs()).mean()
+                    (saliencies[idx] * (gt_video[idx].unsqueeze(0) - frame).abs()).mean()
+                    reconstruction_loss.backward()
 
                     writer.add_scalar('Reconstruction/%d' % idx, reconstruction_loss.item(), iteration)
 
@@ -464,7 +369,7 @@ def main(command_line_args):
                         optimizer.zero_grad()
 
 
-                    if idx % 3 == 0 and settings.backprop.visualize:
+                    if idx % 3 == 0:
                         with torch.no_grad():
                             for key in result['instances'].get_fields():
                                 if key == 'pred_boxes':
@@ -472,9 +377,7 @@ def main(command_line_args):
                                 else:
                                     result['instances'].set(key, result['instances'].get(key).detach().cpu())
                             gt_ind, res_ind, gt_filtered, res_filtered = app.get_undetected_ground_truth_index(result, gt_results[idx])
-
-
-                            image = T.ToPILImage()(frame.detach()[0].clamp(0, 1))
+                            image = T.ToPILImage()(frame.detach()[0])
                             image_FN = app.visualize(image, {'instances': gt_filtered[gt_ind]})
                             image_FP = app.visualize(image, {'instances': res_filtered[res_ind]})
                             visualize_heat_by_summarywriter(image_FN, saliency[0][0], f'FN/{idx}', writer, iteration, tile=False)
@@ -489,11 +392,6 @@ def main(command_line_args):
                         # already optimized when backwarding.
                         continue
                     optimize(args, key, video.grad)
-
-
-            if not settings.backprop.early_optimize:
-                optimizer.step()
-                optimizer.zero_grad()
 
         # if args.train:
         #     (-(1/len_gt_video) * last_score).backward(retain_graph=True)
@@ -526,13 +424,19 @@ def main(command_line_args):
 
         # logger.info('True : %.3f, Tru: %.3f, Tru: %.3f, Tru: %.3f', true_average_score, true_average_std_score_mean, true_average_bw, true_obj)
 
-        # truncate            
+        # optimize
+
+        # truncate
+        if (not settings.backprop.early_optimize) and settings.backprop.train and (sec + 1) % settings.backprop.freq == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+            
         for tensor in state.values():
             tensor.requires_grad = False
         for key in conf.serialize_order:
             if key == 'cloudseg':
                 continue
-            if state[key] > 1.:
+            if state[key] > 1. :
                 state[key][()] = 1.
             if state[key] < 1e-7:
                 state[key][()] = 1e-7
@@ -686,12 +590,6 @@ if __name__ == "__main__":
     # )
 
     parser.add_argument(
-        '--loss_type',
-        type=str,
-        required=True
-    )
-
-    parser.add_argument(
         '-i',
         '--input',
         help='The format of input video.',
@@ -715,13 +613,6 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--num_iterations',
-        help='The total secs of the video.',
-        required=True,
-        type=int
-    )
-
-    parser.add_argument(
-        '--frequency',
         help='The total secs of the video.',
         required=True,
         type=int

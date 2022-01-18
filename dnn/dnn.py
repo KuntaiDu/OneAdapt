@@ -292,6 +292,34 @@ class DNN:
             result,
         )
 
+
+    def get_error_confidence_distribution(self, result, gt):
+
+        if self.type == "Segmentation":
+            raise NotImplementedError
+
+        gt = deepcopy(gt)
+
+        gt = self.filter_result(gt, gt=True)
+        result = self.filter_result(result, gt=False, confidence_check=False)
+        result['instances'] = result['instances'].to('cpu')
+
+        result = result["instances"]
+        gt = gt["instances"]
+
+        IoU = pairwise_iou(result.pred_boxes, gt.pred_boxes)
+        for i in range(len(result)):
+            for j in range(len(gt)):
+                if result.pred_classes[i] != gt.pred_classes[j]:
+                    IoU[i, j] = 0
+
+        return (
+            (IoU > getattr(settings, self.name).iou_threshold).sum(dim=0) == 0,
+            (IoU > getattr(settings, self.name).iou_threshold).sum(dim=1) == 0,
+            gt,
+            result,
+        )
+
     def aggregate_inference_results(self, results, args):
 
         if self.type == "Detection":

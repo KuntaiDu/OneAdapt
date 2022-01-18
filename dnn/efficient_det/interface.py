@@ -183,7 +183,7 @@ class EfficientDet(DNN):
 
         self.type = "Detection"
 
-    def inference(self, image, detach=False, grad=False, dryrun = False):
+    def inference(self, image, detach=False, grad=False, dryrun = False, feature=False):
 
         regressBoxes = BBoxTransform()
         clipBoxes = ClipBoxes()
@@ -236,8 +236,11 @@ class EfficientDet(DNN):
 
             if detach:
                 ret = ret.to("cpu")
-
-            return {"instances": ret}
+            
+            if feature:
+                return {"instances": ret, "features": features}
+            else:
+                return {"instances": ret}
 
     def get_relevant_ind(self, labels):
 
