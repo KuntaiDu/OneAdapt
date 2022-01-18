@@ -39,7 +39,9 @@ for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
     # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
     # approach = 'backprop_30_threshold_loss_iterative_training_new_lr_7e-4_cheat_saliency_error'
 
-    approach = 'backprop_sigmoid_feature_error_debug'
+    loss_type = 'feature_error'
+
+    approach = f'backprop_sigmoid_{loss_type}_debug'
 
     if force or not os.path.exists(output):
 
@@ -50,7 +52,7 @@ for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
             '--start', '0',
             '--end', '61',
             '--num_iterations', '1',
-            '--loss_type', 'feature_error',
+            '--loss_type', loss_type,
             '--frequency', '3',
             # '--qp', f'{qp}',
             # '--res', f'{res}',
