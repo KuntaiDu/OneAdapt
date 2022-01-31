@@ -2,45 +2,56 @@
 video_name = 'videos/dashcam/dashcam_126/part%d.mp4'
 # num_segments = 61
 num_segments = 61
-collection_name = 'Jan16_cloudseg_saliency_loss'
-enable_cloudseg = true
+collection_name = 'Jan30_encoding_preset'
+enable_cloudseg = false
+random_seed = 37
+segment_length = 10
+input_shape = [720, 1280] # H,W
 
 [configuration_space]
 # left ==> right: expensive ==> cheap
+# replicate the right most (the cheapest) configuration twice at the end.
+qp = [20, 24, 27, 30, 36, 42, 50, 51]
+fr = [10, 8, 6, 4, 3, 2, 1]
+res = ['1280x720', '858x480', '480x360', '352x240', '320x180']
+preset = ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast']
 
-# qp = [24, 27, 30, 36]
-# fr = [30, 10, 3]
-# res = [720, 480, 360, 240]
-reducto_pixel = [0.2, 0.25, 0.3, 0.35, 0.4]
-reducto_area = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-reducto_edge = [0.0075, 0.008, 0.0085, 0.009, 0.0095]
+# reducto_pixel = [0.2, 0.25, 0.3, 0.35, 0.4]
+# reducto_area = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+# reducto_edge = [0.0075, 0.008, 0.0085, 0.009, 0.0095]
 
 
 [backprop]
-lr = 0.2
-bw_weight = 20
+lr = 0.1
+bw_weight = 1
+reconstruction_loss_weight = 0.5
 train = true # update the configuration or not
-std_score_mean_weight = 0
-compute_weight = 0.04
-sum_score_mean_weight = 1
+# std_score_mean_weight = 0
+compute_weight = 1
+# sum_score_mean_weight = 1
 app = 'EfficientDet_d2'
 early_optimize = true
 visualize = false
+difference_threshold = 0.25
 
 
     [backprop.frozen_config]
-    res = '640x360'
-    fr = 10
 
     [backprop.tunable_config]
     # 1: expensive, 0: cheap.
     # reducto_pixel = 1.0
     # reducto_area = 1.0
     # reducto_edge = 1.0
-    cloudseg = true
+    qp = 1.0
+    res = 1.0
+    fr = 1.0
+    preset = 1.0
 
     [backprop.tunable_config_lr]
-    cloudseg = 7e-4
+    # qp = 0.5
+    # res = 0.5
+    # fr = 0.5
+    # cloudseg = 7e-4
     # app = 'EfficientDet_d2'
     # tunable_configs = ['reducto_pixel', 'reducto_area', 'reducto_edge']
     
@@ -49,10 +60,10 @@ visualize = false
 
 [ground_truths_config]
 app = 'EfficientDet_d2'
-qp = 0
-res = '1280:720'
+qp = 20
+res = '1280x720'
 fr = 10
-cloudseg = false
+preset = 'veryslow'
 
 
 [inference_config]

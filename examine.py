@@ -40,7 +40,7 @@ def transform(result, lengt):
 
 
 
-def examine(x_args, gt_args, x_app, db):
+def examine(x_args, gt_args, x_app, db, key='stats'):
 
     assert isinstance(x_args, Munch)
     assert isinstance(gt_args, Munch)
@@ -57,7 +57,7 @@ def examine(x_args, gt_args, x_app, db):
     query = x_args.copy() 
     query.update({'ground_truth': gt_args})
 
-    if db['stats'].find_one(query) is not None:
+    if db[key].find_one(query) is not None:
         if not settings.examine_config.force_examine:
             # find latest result
             logger.info('Examine results already cached. Return.')
@@ -89,7 +89,7 @@ def examine(x_args, gt_args, x_app, db):
     x.update({'ground_truth': gt_args})
     x.update({'norm_bw': x['bw'] * 1.0 / gt['bw']})
 
-    db['stats'].insert_one(x)
+    db[key].insert_one(x)
     
     return x
 

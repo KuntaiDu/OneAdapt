@@ -23,7 +23,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from dnn.dnn_factory import DNN_Factory
 
-from utils.video_reader import read_video, read_video_config
+from utils.video_reader import read_video, read_video_config, read_video_to_tensor
 # from utils.results import write_results
 
 from knob.control_knobs import framerate_control, quality_control
@@ -74,7 +74,7 @@ def encode(args):
                 "-y",
                 "-hide_banner",
                 "-loglevel",
-                "warning",
+                "error",
                 # "-stats",
                 "-i",
                 input_video,
@@ -86,12 +86,15 @@ def encode(args):
                 'libx264', 
                 "-qp",
                 f"{args.qp}",
+                "-preset",
+                f"{args.preset}",
                 output_video,
             ]
         )
         
-        video_config = read_video_config(input_video)
-        remaining_frames = set(range(video_config['#frames'])) # no filtering there.
+        # input_video_config = read_video_config(input_video)
+        output_video_config = read_video_config(output_video)
+        output_video_config['encoded_frames'] = list(range(output_video_config['#frames']))
         
     else:
 
@@ -106,7 +109,7 @@ def encode(args):
         # directly read input video and calculate reducto features.
         Path(prefix).mkdir()
         video_name = input_video
-        video_config = read_video_config(video_name)
+        # video_config = read_video_config(video_name)
         prev_frame = None
         prev_frame_pil = None
         
@@ -163,7 +166,7 @@ def encode(args):
                 "-y",
                 "-hide_banner",
                 "-loglevel",
-                "warning",
+                "error",
                 # "-stats",
                 "-i",
                 prefix + '/%010d.png',
@@ -173,13 +176,22 @@ def encode(args):
                 'libx264', 
                 "-qp",
                 f"{args.qp}",
+                "-preset",
+                f"{args.preset}",
                 output_video,
             ]
         )
 
         shutil.rmtree(prefix)
 
-    return output_video, remaining_frames
+        output_video_config = read_video_config(output_video)
+        # video_config['#encoded_frames'] = set(range(video_config['#frames']))
+        output_video_config['encoded_frames'] = list(remaining_frames)
+
+
+
+
+    return output_video, output_video_config
 
 
     
@@ -232,8 +244,7 @@ def inference(args, db, app=None):
         
 
     assert app is not None and app.name == args.app, f'{args}'
-    video_name, remaining_frames = encode(args)
-    video_config = read_video_config(video_name)
+    video_name, video_config = encode(args)
 
 
 
@@ -243,17 +254,20 @@ def inference(args, db, app=None):
 
     inference_results = {}
 
-    if args.cloudseg:
+    if args.get('cloudseg', None):
         logger.info('CloudSeg enabled. Will perform SR.')
 
     with torch.no_grad():
 
-        for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
+
+        for fid, frame in enumerate(tqdm(read_video_to_tensor(video_name))):
+
+            frame = frame.unsqueeze(0)
                 
-            if hasattr(args, 'gamma'):
+            if args.get('gamma', None) is not None:
                 frame = T.functional.adjust_gamma(frame, args.gamma)
 
-            if args.cloudseg:
+            if args.get('cloudseg', None):
                 
                 frame = conf.SR_dnn(frame.to('cuda:1')).cpu()
 
@@ -281,8 +295,6 @@ def inference(args, db, app=None):
     args.update({
         'inference_result': pickle.dumps(inference_results),
         'timestamp': str(datetime.now()),
-        'remaining_frames': list(remaining_frames),
-        '#remaining_frames': len(remaining_frames),
     })
     args.update(video_config)
     # insert result to database
