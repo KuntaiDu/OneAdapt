@@ -65,6 +65,7 @@ def profile(command_line_args, previous_arg, gt_args, app, db):
     logger.info(f'Initial objective: {objective:.4f}')
     
     optimal_args = deepcopy(previous_arg)
+    optimal_stat = stat
 
 
     for key in settings.configuration_space:
@@ -82,12 +83,30 @@ def profile(command_line_args, previous_arg, gt_args, app, db):
                 + settings.backprop.bw_weight * stat['bw'] / gt_bw \
                 + settings.backprop.compute_weight * len(stat['encoded_frames']) / gt_compute
 
-            logger.info(f'Objective: {new_objective:.4f}')
+            logger.info(f'Objective: %.4f 1-F1: %.4f BW: %.4f Com: %.4f' %(
+                new_objective,
+                1- stat['f1'],
+                stat['bw'] / gt_bw,
+                len(stat['encoded_frames']) / gt_compute
+            ))
 
             if new_objective < objective:
                 logger.info('Update objective.')
                 objective = new_objective
-                optimal_args = args
+                optimal_args = deepcopy(args)
+                optimal_stat = stat
+
+
+    for key in settings.configuration_space:
+        logger.info(f'{key}: {optimal_args[key]}')
+
+    for stat_key in ['f1', 'bw', 'encoded_frames']:
+        logger.info(f'{stat_key}: {optimal_stat[stat_key]}')
+
+
+    # logger.info(f'Pick {optimal_args}')
+    # logger.info(f'Stats: {stat}')
+    # breakpoint()
 
     return optimal_args
 
