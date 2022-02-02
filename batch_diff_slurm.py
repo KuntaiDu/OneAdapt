@@ -61,7 +61,7 @@ for fmt in fmts:
     if force or not os.path.exists(output):
 
         run([
-            'srun', '-p', 'general', '--gres=gpu:4', '-w', 'aa[001-003]', 
+            'srun', '-p', 'general', '--gres=gpu:1', '-w', 'aa[001-003]', '--pty',
             'python', 'diff_cloudseg.py',
             '-i', fmt,
             # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
