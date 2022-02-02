@@ -12,9 +12,9 @@ input_shape = [720, 1280] # H,W
 # left ==> right: expensive ==> cheap
 # replicate the right most (the cheapest) configuration twice at the end.
 qp = [20, 24, 27, 30, 36, 42, 50, 51]
-fr = [10, 8, 6, 4, 3, 2, 1]
 res = ['1280x720', '858x480', '480x360', '352x240', '320x180']
 preset = ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast']
+fr = [10, 8, 6, 4, 3, 2, 1]
 
 # reducto_pixel = [0.2, 0.25, 0.3, 0.35, 0.4]
 # reducto_area = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]

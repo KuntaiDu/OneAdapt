@@ -52,8 +52,7 @@ logger = logging.getLogger("chameleon")
 
 
 
-def profile(command_line_args, previous_arg, gt_args, app, db):
-
+def profile(command_line_args, previous_arg, gt_args, app, db, compute):
 
     stat = examine(previous_arg, gt_args, app, db)
     gt_bw = stat['bw']
@@ -89,6 +88,8 @@ def profile(command_line_args, previous_arg, gt_args, app, db):
                 stat['bw'] / gt_bw,
                 len(stat['encoded_frames']) / gt_compute
             ))
+            
+            compute['compute'] = compute['compute'] + len(stat['encoded_frames'])
 
             if new_objective < objective:
                 logger.info('Update objective.')
@@ -152,12 +153,32 @@ def main(command_line_args):
 
         optimal_args.second = second
         gt_args.second = second
+        
+        compute = {'compute': 0}
+        norm_bw = 0
 
         if second % args.frequency == 0:
 
-            optimal_args = profile(command_line_args, optimal_args, gt_args, app, db)
+            optimal_args = profile(command_line_args, optimal_args, gt_args, app, db, compute)
+            print(compute)
 
-        examine(optimal_args, gt_args, app, db)
+        stat = examine(optimal_args, gt_args, app, db)
+        norm_bw = 1.
+        f1 = 1.0
+        
+        if second % args.frequency != 0:
+            compute['compute'] = len(stat['encoded_frames'])
+            norm_bw = stat['norm_bw']
+            f1 = stat['f1']
+            
+        db['cost'].insert_one({
+            'command_line_args': vars(command_line_args), 
+            'settings': settings.to_dict(),
+            'compute': compute['compute'] / settings.segment_length,
+            'norm_bw': norm_bw,
+            'second': second,
+            'f1': f1,
+        })
 
         
 

@@ -55,7 +55,7 @@ for fmt in fmts:
 
     loss_type = 'saliency_error'
 
-    approach = f'backprop_sigmoid_{loss_type}_add_preset_lr_0.1'
+    approach = f'backprop_sigmoid_{loss_type}_add_preset_lr_0.1_9sec'
     
 
     if force or not os.path.exists(output):

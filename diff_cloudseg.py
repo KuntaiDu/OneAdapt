@@ -345,7 +345,7 @@ def main(command_line_args):
 
 
 
-        if settings.backprop.train and sec % command_line_args.frequency == 0:
+        if settings.backprop.train and sec < 9:
 
             # take the gradient from the video
             # video.requires_grad = True
