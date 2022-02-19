@@ -2,7 +2,7 @@
 video_name = 'videos/dashcam/dashcam_126/part%d.mp4'
 # num_segments = 61
 num_segments = 61
-collection_name = 'Jan30_encoding_preset'
+collection_name = 'Feb12_encoding_x264'
 enable_cloudseg = false
 random_seed = 37
 segment_length = 10
@@ -14,7 +14,15 @@ input_shape = [720, 1280] # H,W
 qp = [20, 24, 27, 30, 36, 42, 50, 51]
 res = ['1280x720', '858x480', '480x360', '352x240', '320x180']
 preset = ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast']
+bf = [1,2,3,4,5,6,7,8,9]
+
+# b_strategy = [2,1]
+# b_qfactor = [0.0, 0.1, 0.2]
+me_method = ['esa', 'umh', 'hex', 'dia']
+me_range = [16, 14, 12, 10, 8, 6, 4]
+subq = [9,8,7,6,5,4,3,2,1]
 fr = [10, 8, 6, 4, 3, 2, 1]
+
 
 # reducto_pixel = [0.2, 0.25, 0.3, 0.35, 0.4]
 # reducto_area = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
@@ -46,6 +54,10 @@ difference_threshold = 0.25
     res = 1.0
     fr = 1.0
     preset = 1.0
+    bf = 1.0
+    me_method = 1.0
+    me_range = 1.0
+    subq = 1.0
 
     [backprop.tunable_config_lr]
     # qp = 0.5
@@ -63,7 +75,11 @@ app = 'EfficientDet_d2'
 qp = 20
 res = '1280x720'
 fr = 10
-preset = 'veryslow'
+bf = 1
+me_method = "esa"
+me_range = 16
+subq = 9
+preset = "veryslow"
 
 
 [inference_config]
