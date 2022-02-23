@@ -159,7 +159,7 @@ def serialize_most_expensive_state(ret: Munch, config: Dict, keys: List[str]) ->
         yield munchify(ret)
     else:
         key = keys[0]
-        if key == 'cloudseg':
+        if key in ['cloudseg', 'macroblocks']:
             yield from serialize_most_expensive_state(ret, config,keys[1:])
         if isinstance(config[key], torch.Tensor):
             # a differentiable knob. No need to discretize it.

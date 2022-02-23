@@ -43,164 +43,14 @@ import logging
 import utils.config_utils as conf
 sns.set()
 
-
-__all__ = ['inference', 'encode']
-
-
+from utils.encode import encode
+from utils.serialize import serialize_db_argument
 
 
-
-def encode(args):
-
-    input_video = args.input % args.second
-    prefix = f"cache/temp_{time.time()}"
-    output_video = prefix + '.mp4'
-    
-    
-    has_reducto = False
-    for differencer in reducto_differencers:
-        if hasattr(args, 'reducto_' + differencer.feature):
-            has_reducto = True
-            break
-    
-    if not has_reducto:
-
-
-        assert hasattr(args, 'fr')
-
-        subprocess.check_output(
-            [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                # "-stats",
-                "-i",
-                input_video,
-                "-s",
-                f"{args.res}",
-                "-bf",
-                f"{args.bf}",
-                "-me_range",
-                f"{args.me_range}",
-                "-me_method",
-                f"{args.me_method}",
-                "-subq",
-                f"{args.subq}",
-                "-filter:v",
-                f"fps={args.fr}",
-                '-c:v', 
-                'libx264', 
-                "-qp",
-                f"{args.qp}",
-                output_video,
-            ]
-        )
-        
-        # input_video_config = read_video_config(input_video)
-        output_video_config = read_video_config(output_video)
-        output_video_config['encoded_frames'] = list(range(output_video_config['#frames']))
-        
-    else:
-
-        assert args.fr == settings.ground_truths_config.fr, 'The frame rate of reducto must align with the ground truth.'
-
-        logger = logging.getLogger('encode')
-        logger.debug('Calculating frame differences')
-
-        logger.info(f'Encode with {args}')
-
-
-        # directly read input video and calculate reducto features.
-        Path(prefix).mkdir()
-        video_name = input_video
-        # video_config = read_video_config(video_name)
-        prev_frame = None
-        prev_frame_pil = None
-        
-        remaining_frames = set()
-
-        with ThreadPoolExecutor(max_workers=3) as executor:
-
-            # for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
-            for fid, frame in read_video(video_name):
-                
-                # convert image to cv2 format for reducto
-                cur_frame = np.array(T.ToPILImage()(frame[0]))[:, :, ::-1].copy()
-
-                if prev_frame is None:
-                    logger.debug('Encode frame %d', fid)
-
-                    executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
-                    prev_frame = cur_frame
-                    prev_frame_pil = T.ToPILImage()(frame[0])
-                    
-                    remaining_frames = remaining_frames | {fid}
-                    
-                else:
-
-                    discard = True
-                    
-                    for differencer in reducto_differencers:
-                        if hasattr(args, 'reducto_' + differencer.feature):
-                            difference_value = differencer.cal_frame_diff(differencer.get_frame_feature(cur_frame), differencer.get_frame_feature(prev_frame))
-                            logger.debug('Frame %d, feat %s, value %.5f', fid, differencer.feature, difference_value)
-                            if difference_value > getattr(args, 'reducto_' + differencer.feature):
-                                discard = False
-                                break
-
-                    if not discard:
-                        logger.debug('Encode frame %d', fid)
-                        executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
-                        prev_frame = cur_frame
-                        prev_frame_pil = T.ToPILImage()(frame[0])
-                        remaining_frames = remaining_frames | {fid}
-                    else:
-                        executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
-
-                
-        logger.debug('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % len(remaining_frames))
+__all__ = ['inference']
 
 
 
-        
-        
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                # "-stats",
-                "-i",
-                prefix + '/%010d.png',
-                "-s",
-                f"{args.res}",
-                '-c:v', 
-                'libx264', 
-                "-qp",
-                f"{args.qp}",
-                "-preset",
-                f"{args.preset}",
-                output_video,
-            ]
-        )
-
-        shutil.rmtree(prefix)
-
-        output_video_config = read_video_config(output_video)
-        # video_config['#encoded_frames'] = set(range(video_config['#frames']))
-        output_video_config['encoded_frames'] = list(remaining_frames)
-
-
-
-
-    return output_video, output_video_config
-
-
-    
 
 
 
@@ -213,10 +63,13 @@ def inference(args, db, app=None):
 
 
     # logger.info('Inference on %s with res %s, fr %d, qp %d, app %s, gamma %.2f', args.input % args.second, args.res, args.fr, args.qp, args.app, args.gamma)
+    args = args.copy()
+    args = serialize_db_argument(args)
     args_string = ""
     for key in args:
         args_string += f'{key}_{args[key]}_'
-    args = args.copy()
+    
+
     logger.debug('Try inference on %s', args_string)
 
     logger = logging.getLogger("inference")

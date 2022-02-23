@@ -41,7 +41,7 @@ def probe_range(fmt):
     return idx
 
 fmts = [
-    f'videos/yoda/dashcam_{i}/part%d.mp4' for i in range(1, 9)
+    f'videos/yoda/dashcam_{i}/part%d.mp4' for i in range(1, 2)
 ]
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
@@ -55,7 +55,7 @@ for fmt in fmts:
 
     loss_type = 'saliency_error'
 
-    approach = f'backprop_sigmoid_{loss_type}_add_preset_lr_0.1_9sec'
+    approach = f'backprop_sigmoid_{loss_type}_macroblocks_1padding_freq1'
     
 
     if force or not os.path.exists(output):
@@ -69,7 +69,7 @@ for fmt in fmts:
             '--end', '%d' % probe_range(fmt),
             '--num_iterations', '1',
             '--loss_type', loss_type,
-            '--frequency', '3',
+            '--frequency', '1',
             # '--qp', f'{qp}',
             # '--res', f'{res}',
             # '--fr', f'{fr}',

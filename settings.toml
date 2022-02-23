@@ -1,12 +1,14 @@
 
-video_name = 'videos/dashcam/dashcam_126/part%d.mp4'
+# video_name = 'videos/dashcam/dashcam_126/part%d.mp4'
 # num_segments = 61
-num_segments = 61
-collection_name = 'Feb12_encoding_x264'
+# num_segments = 61
+collection_name = 'Feb_19_macroblock'
 enable_cloudseg = false
 random_seed = 37
 segment_length = 10
 input_shape = [720, 1280] # H,W
+qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
+x264_dir = '/tank/kuntai/myh264/'
 
 [configuration_space]
 # left ==> right: expensive ==> cheap
@@ -31,7 +33,7 @@ fr = [10, 8, 6, 4, 3, 2, 1]
 
 [backprop]
 lr = 0.1
-bw_weight = 1
+bw_weight = 0.05
 reconstruction_loss_weight = 0.5
 train = true # update the configuration or not
 # std_score_mean_weight = 0
@@ -39,8 +41,12 @@ compute_weight = 1
 # sum_score_mean_weight = 1
 app = 'EfficientDet_d2'
 early_optimize = true
-visualize = false
+visualize = true
 difference_threshold = 0.25
+tile_size = 80
+macroblock_shape = [9, 16]
+high_quality = 20
+low_quality = 40
 
 
     [backprop.frozen_config]
@@ -50,16 +56,19 @@ difference_threshold = 0.25
     # reducto_pixel = 1.0
     # reducto_area = 1.0
     # reducto_edge = 1.0
-    qp = 1.0
-    res = 1.0
-    fr = 1.0
-    preset = 1.0
-    bf = 1.0
-    me_method = 1.0
-    me_range = 1.0
-    subq = 1.0
+
+    # qp = 1.0
+    # res = 1.0
+    # fr = 1.0
+    # preset = 1.0
+    # bf = 1.0
+    # me_method = 1.0
+    # me_range = 1.0
+    # subq = 1.0
+    macroblocks = true
 
     [backprop.tunable_config_lr]
+    macroblocks = 2000 # 0.5 * 16 * 9.
     # qp = 0.5
     # res = 0.5
     # fr = 0.5
@@ -75,11 +84,6 @@ app = 'EfficientDet_d2'
 qp = 20
 res = '1280x720'
 fr = 10
-bf = 1
-me_method = "esa"
-me_range = 16
-subq = 9
-preset = "veryslow"
 
 
 [inference_config]

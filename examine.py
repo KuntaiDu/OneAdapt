@@ -15,6 +15,8 @@ import pymongo
 
 from dnn.dnn_factory import DNN_Factory
 
+from utils.serialize import serialize_db_argument
+
 
 # from utils.bbox_utils import jaccard
 from inference import inference
@@ -47,6 +49,8 @@ def examine(x_args, gt_args, x_app, db, key='stats'):
     
     x_args = x_args.copy()
     gt_args = gt_args.copy()
+    x_args = serialize_db_argument(x_args)
+    gt_args = serialize_db_argument(gt_args)
     
     # assert x_args.app == gt_args.app
 

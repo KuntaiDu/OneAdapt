@@ -37,7 +37,8 @@ from utils.video_reader import read_video, read_video_config, read_video_to_tens
 import utils.config_utils as conf
 from collections import defaultdict
 from tqdm import tqdm
-from inference import inference, encode
+from inference import inference
+from utils.encode import encode, tile_mask
 from examine import examine
 import pymongo
 from munch import *
@@ -51,7 +52,7 @@ set_seed()
 
 # set_trace()
 conf.space = munchify(settings.configuration_space.to_dict())
-state = {}
+state = munchify({})
 
 len_gt_video = 10
 logger = logging.getLogger("diff")
@@ -73,8 +74,10 @@ def read_expensive_from_config(gt_args, state, app, db, command_line_args):
     sum_prob = 0
     
     for args in conf.serialize_most_expensive_state(gt_args.copy(), conf.state2config(state), conf.serialize_order):
-
-
+        
+        if hasattr(state, 'macroblocks'):
+            del args.qp
+            args.macroblocks = state['macroblocks']
         # encode
         # args['gamma'] = 1.0
         video_name, remaining_frames = encode(args)
@@ -110,9 +113,16 @@ def read_expensive_from_config(gt_args, state, app, db, command_line_args):
     # ret.update({'video': average_video})
     # ret = dict(ret)
     # return ret
+    
+
+    
+    
 
 
 def optimize(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
+ 
+    if key == 'macroblocks':
+        return optimize_macroblocks(args, key, grad, gt_config, gt_video)
     
     # assert not hq_video.requires_grad
 
@@ -232,6 +242,43 @@ def optimize(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
 
 
 
+def optimize_macroblocks(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
+    
+    args = args.copy()
+    
+    hq_args = args.copy()
+    del hq_args.macroblocks
+    hq_args.qp = settings.backprop.high_quality
+    logger.info(f'Encoding with high quality (QP {hq_args.qp})')
+    hq_name, hq_config = encode(hq_args)
+    hq_video = read_video_to_tensor(hq_name)
+    
+    lq_args = hq_args
+    lq_args.qp = settings.backprop.low_quality
+    logger.info(f'Encoding with low quality (QP {lq_args.qp})')
+    lq_name, lq_config = encode(lq_args)
+    lq_video = read_video_to_tensor(lq_name)
+    
+    
+    mask = args.macroblocks
+    mask = tile_mask(mask, settings.backprop.tile_size)
+    mask = mask[None, None, :, :]
+    masked_video = mask * hq_video + (1-mask) * lq_video
+    masked_bw = (mask.mean() * hq_config['bw'] + (1-mask.mean()) * lq_config['bw']) / gt_config['bw']
+    
+    diff_video = (masked_video - hq_video).abs()
+    
+    loss = settings.backprop.reconstruction_loss_weight * (diff_video * grad).abs().mean() +\
+        settings.backprop.bw_weight * masked_bw
+        
+    loss.backward()
+    
+    return True
+
+
+
+
+
 
 
 
@@ -274,7 +321,12 @@ def main(command_line_args):
         lr = settings.backprop.lr
         if key in settings.backprop.tunable_config_lr.keys():
             lr = settings.backprop.tunable_config_lr[key]
-        state[key] = torch.tensor(settings.backprop.tunable_config[key])
+        
+        if key == 'macroblocks':
+            # create variable
+            state[key] = 0.6* torch.ones(settings.backprop.macroblock_shape)
+        else:
+            state[key] = torch.tensor(settings.backprop.tunable_config[key])
         parameters.append({
             "params": state[key],
             "lr": lr
@@ -345,7 +397,8 @@ def main(command_line_args):
 
 
 
-        if settings.backprop.train and sec < 9:
+        # if settings.backprop.train and sec < 9:
+        if settings.backprop.train and sec % command_line_args.frequency == 0:
 
             # take the gradient from the video
             # video.requires_grad = True
@@ -390,6 +443,8 @@ def main(command_line_args):
 
                 for idx, frame in enumerate(tqdm(video)):
 
+                    fid = sec * 10 + idx
+
                     if settings.backprop.tunable_config.get('cloudseg', None):
                         frame = conf.SR_dnn(frame.unsqueeze(0).to('cuda:1')).cpu()[0]
 
@@ -433,6 +488,8 @@ def main(command_line_args):
                     #     # reconstruction_loss = (saliencies[idx] * (gt_frame - frame).abs()).mean()
                     #     reconstruction_loss = (saliency * (gt_frame - frame).abs()).mean()
                     #     reconstruction_loss.backward()
+
+
 
                     elif command_line_args.loss_type == 'cheat_saliency_error':
 
@@ -489,6 +546,7 @@ def main(command_line_args):
                         result = {'instances': result}
 
 
+
                     elif command_line_args.loss_type == 'saliency_error':
 
                         result = app.inference(frame.detach(), detach=True, grad=False)
@@ -530,7 +588,7 @@ def main(command_line_args):
                     #     optimizer.zero_grad()
 
 
-                    if idx % 3 == 0 and settings.backprop.visualize:
+                    if fid % 10 == 0 and settings.backprop.visualize and iteration == 0:
                         with torch.no_grad():
                             for key in result['instances'].get_fields():
                                 if key == 'pred_boxes':
@@ -539,15 +597,21 @@ def main(command_line_args):
                                     result['instances'].set(key, result['instances'].get(key).detach().cpu())
                             gt_ind, res_ind, gt_filtered, res_filtered = app.get_undetected_ground_truth_index(result, gt_results[idx])
 
-
+                            logger.info('Generating visualization images...')
                             image = T.ToPILImage()(frame.detach()[0].clamp(0, 1))
                             image_FN = app.visualize(image, {'instances': gt_filtered[gt_ind]})
                             image_FP = app.visualize(image, {'instances': res_filtered[res_ind]})
-                            visualize_heat_by_summarywriter(image_FN, saliency[0][0], f'FN/{idx}', writer, iteration, tile=False)
-                            visualize_heat_by_summarywriter(image_FP, saliency[0][0], f'FP/{idx}', writer, iteration, tile=False)
+                            result = app.filter_result(result)
+                            image_all = app.visualize(image, result)
 
-                        if iteration == 0:
-                            writer.add_image('GT/%' % idx, gt_video[idx], idx)
+                            logger.info('Logging visualizations')
+                            visualize_heat_by_summarywriter(image_FN, saliency[0][0], 'FN', writer, fid, tile=False)
+                            visualize_heat_by_summarywriter(image_FP, saliency[0][0], 'FP', writer, fid, tile=False)
+                            visualize_heat_by_summarywriter(image_all, tile_mask( (state['macroblocks'] > 0.5).float(), settings.backprop.tile_size), 'saliency', writer, fid, tile=False)
+                            
+
+                        # if iteration == 0:
+                        #     writer.add_image('GT/%d' % idx, gt_video[idx], idx)
 
 
                 # saliencies_tensor = torch.cat(saliencies_tensor)
@@ -569,6 +633,10 @@ def main(command_line_args):
                 for key in conf.serialize_order:
                     if key == 'cloudseg':
                         continue
+                    if key == 'macroblocks':
+                        state[key][state[key] > 1.] = 1.
+                        state[key][state[key] < 1e-7] = 1e-7
+                        continue
                     if state[key] > 1.:
                         state[key][()] = 1.
                     if state[key] < 1e-7:
@@ -582,6 +650,10 @@ def main(command_line_args):
                     if key == 'cloudseg':
                         param = list(conf.SR_dnn.net.parameters())[0]
                         logger.info('CloudSeg: gradient of layer 0 mean: %.3f, std: %.3f', param.grad.mean(), param.grad.std())
+                        continue
+                    if key == 'macroblocks':
+                        param = state[key]
+                        logger.info('Macroblocks: mean: %.3f, gradient mean: %.3f, std: %.3f', (param > 0.5).float().mean(), param.grad.mean(), param.grad.std())
                         continue
                     state_str += '%s : %.3f, grad: %.7f\n' % (key, state[key], state[key].grad)
 
@@ -620,9 +692,9 @@ def main(command_line_args):
 
         # choose = conf.random_serialize(video_name, conf.state2config(state))
 
-    mean = torch.tensor(means).mean().item()
+    # mean = torch.tensor(means).mean().item()
 
-    logger.info('Overall mean quality: %.3f', mean)
+    # logger.info('Overall mean quality: %.3f', mean)
 
     # with open('config.yaml', 'a') as f:
     #     f.write(yaml.dump([{

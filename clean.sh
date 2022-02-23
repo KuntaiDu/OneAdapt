@@ -1,0 +1,15 @@
+
+rm empirical_chroma_qp_matrix_file
+rm empirical_qp_matrix_file
+rm empirical_u_error_matrix_file
+rm empirical_v_error_matrix_file
+rm empirical_y_error_matrix_file
+rm mb_size_matrix_file
+rm qp_delta_size_file
+rm rgb_error_matrix_file
+rm u_values_p_dst_encoder
+rm v_values_p_dst_encoder
+rm y_values_p_dst_encoder
+rm u_values_p_src_encoder
+rm v_values_p_src_encoder
+rm y_values_p_src_encoder
