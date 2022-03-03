@@ -68,10 +68,19 @@ def profile(command_line_args, previous_arg, gt_args, app, db, compute):
 
 
     for key in settings.configuration_space:
+        
+        
+        if command_line_args.enable_top3 and key not in ['res', 'qp', 'preset']:
+            continue
 
         args = deepcopy(optimal_args)
 
-        for val in settings.configuration_space[key]:
+        for idx, val in enumerate(settings.configuration_space[key]):
+            
+            if idx == len(settings.configuration_space[key]) - 1:
+                continue # The last configuration is just a sentinal.
+            if idx % command_line_args.downsample_factor != 0:
+                continue # downsample the configuration space uniformly
 
             logger.info(f'Searching {key}:{val}')
 
@@ -103,13 +112,15 @@ def profile(command_line_args, previous_arg, gt_args, app, db, compute):
 
     for stat_key in ['f1', 'bw', 'encoded_frames']:
         logger.info(f'{stat_key}: {optimal_stat[stat_key]}')
+        
+    delay = (compute['compute'] + settings.compute_limit - 1) // settings.compute_limit
 
 
     # logger.info(f'Pick {optimal_args}')
     # logger.info(f'Stats: {stat}')
     # breakpoint()
 
-    return optimal_args
+    return optimal_args, delay
 
 
 
@@ -120,6 +131,7 @@ def profile(command_line_args, previous_arg, gt_args, app, db, compute):
 
 
 def main(command_line_args):
+    
 
 
     # a bunch of initialization.
@@ -146,23 +158,41 @@ def main(command_line_args):
     optimal_args.input = command_line_args.input
     optimal_args.command_line_args = vars(command_line_args)
     optimal_args.settings = settings.as_dict()
+    
+    current_args = None
 
     gt_args = deepcopy(optimal_args)
+    
+    # constraint optimal args's QP into the configuration space.
+    optimal_args.qp = 20
+    
+    next_profile_second = 0
 
     for second in range(command_line_args.start, command_line_args.end):
 
         optimal_args.second = second
         gt_args.second = second
+        if current_args is not None:
+            current_args.second = second
         
         compute = {'compute': 0}
         norm_bw = 0
 
-        if second % args.frequency == 0:
+        if second == next_profile_second:
+            
+            '''
+                Previous profiling finished.
+                Refresh the config and launch the new profiling.
+            '''
+            current_args = optimal_args.copy()
+            current_args.second = second
+            optimal_args, delay = profile(command_line_args, optimal_args, gt_args, app, db, compute)
+            
+            next_profile_second = second + delay
+            
+            logger.info('Next profiling second is %d', next_profile_second)
 
-            optimal_args = profile(command_line_args, optimal_args, gt_args, app, db, compute)
-            print(compute)
-
-        stat = examine(optimal_args, gt_args, app, db)
+        stat = examine(current_args, gt_args, app, db)
         norm_bw = 1.
         f1 = 1.0
         
@@ -262,6 +292,13 @@ if __name__ == "__main__":
         required=True,
         type=int
     )
+    
+    parser.add_argument(
+        '--downsample_factor',
+        help='The downsample factor of the configuration space',
+        required=True,
+        type=int,
+    )
 
 
     parser.add_argument(
@@ -276,6 +313,12 @@ if __name__ == "__main__":
         '--approach',
         type=str,
         required=True
+    )
+    
+    parser.add_argument(
+        '--enable_top3',
+        default=False,
+        action='store_true',
     )
     # parser.add_argument(
     #     '--gamma',

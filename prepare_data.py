@@ -5,13 +5,17 @@ from pathlib import Path
 import glob
 
 video_list = [
-    ('/tank/kuntai/visdrone/VisDrone2019-SOT-train/sequences/uav0000126_07915_s', 3),
+    ('/tank/kuntai/code/video-compression/videos/driving_0', 0),
+    ('/tank/kuntai/code/video-compression/videos/driving_1', 1),
+    ('/tank/kuntai/code/video-compression/videos/driving_2', 2),
+    ('/tank/kuntai/code/video-compression/videos/driving_3', 3),
+    ('/tank/kuntai/code/video-compression/videos/driving_4', 4),
 ]
 
 for v, idx in video_list:
     
-    length = len(glob.glob(v + '/*.jpg'))
-    path = Path('videos/dashcam/dashcam_%d/' % idx)
+    length = len(glob.glob(v + '/*.png'))
+    path = Path('videos/driving/driving_%d' % idx)
     os.system(f'rm -r {path}')
     path.mkdir(parents=True)
     
@@ -20,7 +24,7 @@ for v, idx in video_list:
         start = time * 10
         
         run([
-            'ffmpeg', '-framerate', '10', '-start_number', f'{start}', '-i', v + '/img%07d.jpg',  '-frames:v', '10', '-c:v', 'libx264', '-qp', '0', 'videos/dashcam/dashcam_%d/part%d.mp4' % (idx, time)
+            'ffmpeg', '-framerate', '10', '-start_number', f'{start}', '-i', v + '/%010d.png',  '-frames:v', '10', '-c:v', 'libx264', '-qp', '0', 'videos/driving/driving_%d/part%d.mp4' % (idx, time)
         ])
 
     

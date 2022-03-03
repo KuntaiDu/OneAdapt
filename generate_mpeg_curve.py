@@ -34,7 +34,7 @@ def probe_range(fmt):
     return idx
 
 fmts = [
-    f'videos/yoda/dashcam_{i}/part%d.mp4' for i in range(1, 2)
+    f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 ]
 
 db = pymongo.MongoClient("mongodb://localhost:27017/")[settings.collection_name]
@@ -63,16 +63,18 @@ if __name__ == "__main__":
 
     for fmt in fmts:
 
-        for qp in [22, 24, 26, 30, 34, 40]:
+        for qp in [20, 22, 24, 26, 30, 34, 40]:
 
             app = DNN_Factory().get_model(gt_config.app)
 
-            for sec in range(probe_range(fmt)):
+            # for sec in range(probe_range(fmt)):
+            for sec in range(30):
 
                 gt_args = gt_config.copy()
                 gt_args.update({
                     'input': fmt,
-                    'second': sec
+                    'second': sec,
+                    'approach': 'mpeg'
                 })
 
                 x_args = gt_args.copy()

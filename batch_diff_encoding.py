@@ -40,17 +40,28 @@ def probe_range(fmt):
         idx += 1
     return idx
 
+# fmts = [
+#     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
+# ]
+# fmts = [
+#     f'videos/yoda/dashcam_{i}/part%d.mp4' for i in range(1, 9)
+# ]
 fmts = [
-    f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
+    f'videos/driving/driving_{i}/part%d.mp4' for i in range(5)
 ]
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
+# for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
 
-    for fmt in fmts:
+for fmt in fmts:
+    
+    
+    for bw_weight in [ 0.1, 0.05, 0.03]:
+    # for bw_weight in [ 0.1]:
+        
 
-        freq = orig_freq
+        freq = 1
 
         # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
         # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
@@ -58,7 +69,7 @@ for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
 
         loss_type = 'saliency_error'
 
-        approach = f'backprop_sigmoid_{loss_type}_macroblocks_newthresh_weight_{bw_weight}'
+        approach = f'backprop_encoding_SGD_bwweight_{bw_weight}_lr0.5'
         
 
         if force or not os.path.exists(output):
@@ -66,6 +77,8 @@ for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
             env = os.environ.copy()
             
             env['DYNACONF_BACKPROP__BW_WEIGHT'] = f'{bw_weight}'
+            env['DYNACONF_BACKPROP__LR'] = '0.5'
+            
 
             run([
                 'python', 'diff_cloudseg.py',
@@ -73,8 +86,8 @@ for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',
                 '--start', '0',
-                # '--end', '%d' % probe_range(fmt),
-                '--end', '%d' % 30,
+                '--end', '%d' % probe_range(fmt),
+                # '--end', '%d' % 30,
                 '--num_iterations', '1',
                 '--loss_type', loss_type,
                 '--frequency', '1',

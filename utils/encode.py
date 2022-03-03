@@ -200,6 +200,7 @@ def normal_encoding(args, input_video, output_video):
 def encode(args):
 
     input_video = args.input % args.second
+    # nput_video = args.input % 1
     prefix = f"cache/temp_{time.time()}"
     output_video = prefix + '.mp4'
     

@@ -161,13 +161,13 @@ def optimize(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
 
         hq_diff = (hq_video - gt_video).abs()
         hq_diff = hq_diff.sum(dim=1, keepdim=True)
-        logger.info(f'%.5f pixels in HQ are neglected', (hq_diff>diff_thresh).sum()/(hq_diff>-1).sum()) 
-        hq_diff[hq_diff > diff_thresh] = 0
+        # logger.info(f'%.5f pixels in HQ are neglected', (hq_diff>diff_thresh).sum()/(hq_diff>-1).sum()) 
+        # hq_diff[hq_diff > diff_thresh] = 0
         
         lq_diff = (lq_video - gt_video).abs()
         lq_diff = lq_diff.sum(dim=1, keepdim=True)
-        logger.info(f'%.5f pixels in LQ are neglected', (lq_diff>diff_thresh).sum()/(lq_diff>-1).sum()) 
-        lq_diff[lq_diff > diff_thresh] = 0
+        # logger.info(f'%.5f pixels in LQ are neglected', (lq_diff>diff_thresh).sum()/(lq_diff>-1).sum()) 
+        # lq_diff[lq_diff > diff_thresh] = 0
 
         
 
@@ -230,6 +230,9 @@ def optimize(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
 
         if check():
             return
+        else:
+            # directly return if the gradient is zero. Just to speed up the runtime.
+            return
         
         hq_index -= 1
         hq_index = max(hq_index, 0)
@@ -283,6 +286,7 @@ def optimize_macroblocks(args: dict, key: str, grad: torch.Tensor, gt_config, gt
 
 
 def main(command_line_args):
+    
 
 
     # a bunch of initialization.
@@ -397,7 +401,7 @@ def main(command_line_args):
 
 
 
-        # if settings.backprop.train and sec < 9:
+        #  sec < 9:
         if settings.backprop.train and sec % command_line_args.frequency == 0:
 
             # take the gradient from the video
