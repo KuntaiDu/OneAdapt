@@ -7,6 +7,7 @@ from dnn.efficient_det.interface import EfficientDet
 from .coco_model import COCO_Model
 from .dnn import DNN
 from .efficient_det.interface import EfficientDet
+from .maskrcnn_resnet50 import MaskRCNN_ResNet50_FPN
 # from .fasterrcnn_resnet50 import FasterRCNN_ResNet50_FPN
 # from .fcn_resnet50 import FCN_ResNet50
 # from .mobilenet import SSD
@@ -20,6 +21,7 @@ class DNN_Factory:
     def __init__(self):
         self.name2model = {
             "EfficientDet": EfficientDet,
+            "MaskRCNN_ResNet50_FPN": MaskRCNN_ResNet50_FPN
             # "MobileNet-SSD": SSD,
             # "Detr_ResNet101": Detr_ResNet101,
             # "Yolo5s": Yolo5s,

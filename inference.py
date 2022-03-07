@@ -23,7 +23,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from dnn.dnn_factory import DNN_Factory
 
-from utils.video_reader import read_video, read_video_config, read_video_to_tensor
+from utils.video_reader import read_video, read_video_config
 # from utils.results import write_results
 
 from knob.control_knobs import framerate_control, quality_control
@@ -43,11 +43,145 @@ import logging
 import utils.config_utils as conf
 sns.set()
 
-from utils.encode import encode
-from utils.serialize import serialize_db_argument
+
+__all__ = ['inference', 'encode']
 
 
-__all__ = ['inference']
+
+
+
+def encode(args):
+
+    input_video = args.input % args.second
+    prefix = f"cache/temp_{args.input.split('/')[-2]}_{args.second}"
+    if 'name' in args:
+        prefix+='_qp'
+    output_video = prefix + '.mp4'
+
+    has_reducto = False
+    for differencer in reducto_differencers:
+        if hasattr(args, 'reducto_' + differencer.feature):
+            has_reducto = True
+            break
+
+    if not has_reducto:
+
+
+        assert hasattr(args, 'fr')
+
+        subprocess.check_output(
+            [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "warning",
+                # "-stats",
+                "-i",
+                input_video,
+                "-s",
+                f"{args.res}",
+                "-filter:v",
+                f"fps={args.fr}",
+                '-c:v',
+                'libx264',
+                "-qp",
+                f"{args.qp}",
+                output_video,
+            ]
+        )
+
+        video_config = read_video_config(input_video)
+        remaining_frames = set(range(video_config['#frames'])) # no filtering there.
+
+    else:
+
+        assert args.fr == settings.ground_truths_config.fr, 'The frame rate of reducto must align with the ground truth.'
+
+        logger = logging.getLogger('encode')
+        logger.debug('Calculating frame differences')
+
+        logger.info(f'Encode with {args}')
+
+
+        # directly read input video and calculate reducto features.
+        Path(prefix).mkdir()
+        video_name = input_video
+        video_config = read_video_config(video_name)
+        prev_frame = None
+        prev_frame_pil = None
+
+        remaining_frames = set()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+
+            # for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
+            for fid, frame in read_video(video_name):
+
+                # convert image to cv2 format for reducto
+                cur_frame = np.array(T.ToPILImage()(frame[0]))[:, :, ::-1].copy()
+
+                if prev_frame is None:
+                    logger.debug('Encode frame %d', fid)
+
+                    executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
+                    prev_frame = cur_frame
+                    prev_frame_pil = T.ToPILImage()(frame[0])
+
+                    remaining_frames = remaining_frames | {fid}
+
+                else:
+
+                    discard = True
+
+                    for differencer in reducto_differencers:
+                        if hasattr(args, 'reducto_' + differencer.feature):
+                            difference_value = differencer.cal_frame_diff(differencer.get_frame_feature(cur_frame), differencer.get_frame_feature(prev_frame))
+                            logger.debug('Frame %d, feat %s, value %.5f', fid, differencer.feature, difference_value)
+                            if difference_value > getattr(args, 'reducto_' + differencer.feature):
+                                discard = False
+                                break
+
+                    if not discard:
+                        logger.debug('Encode frame %d', fid)
+                        executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
+                        prev_frame = cur_frame
+                        prev_frame_pil = T.ToPILImage()(frame[0])
+                        remaining_frames = remaining_frames | {fid}
+                    else:
+                        executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
+
+
+        logger.debug('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % len(remaining_frames))
+
+
+
+
+
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "warning",
+                # "-stats",
+                "-i",
+                prefix + '/%010d.png',
+                "-s",
+                f"{args.res}",
+                '-c:v',
+                'libx264',
+                "-qp",
+                f"{args.qp}",
+                output_video,
+            ]
+        )
+        shutil.copy(output_video, "temp/" + output_video)
+
+        # shutil.rmtree(prefix)
+
+    return output_video, remaining_frames
 
 
 
@@ -63,13 +197,10 @@ def inference(args, db, app=None):
 
 
     # logger.info('Inference on %s with res %s, fr %d, qp %d, app %s, gamma %.2f', args.input % args.second, args.res, args.fr, args.qp, args.app, args.gamma)
-    args = args.copy()
-    args = serialize_db_argument(args)
     args_string = ""
     for key in args:
         args_string += f'{key}_{args[key]}_'
-    
-
+    args = args.copy()
     logger.debug('Try inference on %s', args_string)
 
     logger = logging.getLogger("inference")
@@ -78,32 +209,33 @@ def inference(args, db, app=None):
 
     torch.set_default_tensor_type(torch.FloatTensor)
 
-
+    #
     # check if we already performed inference.
-    if db['inference'].find_one(args) is not None:
+    # if db['inference'].find_one(args) is not None:
+    #
+    #     if not config.force_inference:
+    #
+    #         logger.debug('Inference results already cached. Return.')
+    #         for x in db['inference'].find(args).sort("_id", pymongo.DESCENDING):
+    #             return munchify(x)
+    #
+    #     else:
+    #
+    #         logger.warning('Previous inference results exist, but force inference.')
 
-        if not config.force_inference:
-
-            logger.debug('Inference results already cached. Return.')
-            for x in db['inference'].find(args).sort("_id", pymongo.DESCENDING):
-                return munchify(x)
-
-        else:
-            
-            logger.warning('Previous inference results exist, but force inference.')
-            
 
     logger.debug('Start inference.')
 
     # prepare for inference
-    
+
     if config.enable_visualization:
         logger.debug('Launch visualization')
         writer = SummaryWriter('runs/'+ args_string)
-        
+
 
     assert app is not None and app.name == args.app, f'{args}'
-    video_name, video_config = encode(args)
+    video_name, remaining_frames = encode(args)
+    video_config = read_video_config(video_name)
 
 
 
@@ -113,27 +245,26 @@ def inference(args, db, app=None):
 
     inference_results = {}
 
-    if args.get('cloudseg', None):
+    if args.cloudseg:
         logger.info('CloudSeg enabled. Will perform SR.')
 
     with torch.no_grad():
 
+        for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
 
-        for fid, frame in enumerate(tqdm(read_video_to_tensor(video_name))):
-
-            frame = frame.unsqueeze(0)
-                
-            if args.get('gamma', None) is not None:
+            if hasattr(args, 'gamma'):
                 frame = T.functional.adjust_gamma(frame, args.gamma)
 
-            if args.get('cloudseg', None):
-                
+            if args.cloudseg:
+                if args.second > 0:
+                    new_state_dict = torch.load(f'checkpoints/carn_m_{args.second - 1}.pth')
+                    conf.SR_dnn.net.load_state_dict(new_state_dict)
                 frame = conf.SR_dnn(frame.to('cuda:1')).cpu()
 
             inference_results[fid] = app.inference(frame, grad=False, detach=True, dryrun=False)
+            # print(frame.shape)
 
-            
-                
+
 
             if config.enable_visualization and fid % config.visualize_step_size == 0:
 
@@ -154,14 +285,22 @@ def inference(args, db, app=None):
     args.update({
         'inference_result': pickle.dumps(inference_results),
         'timestamp': str(datetime.now()),
+        'remaining_frames': list(remaining_frames),
+        '#remaining_frames': len(remaining_frames),
     })
     args.update(video_config)
     # insert result to database
     db['inference'].insert_one(args)
-    
+    # for i in range(10):
+    #     sorted_vals = np.sort(np.array(inference_results[i]['instances'].scores))
+    #     p = 1. * np.arange(len(sorted_vals))/(len(sorted_vals) - 1)
+    #
+    #     fig, ax = plt.subplots(1, 1, figsize=(11, 5), dpi=200)
+    #     ax.plot(sorted_vals, p)
+    #     fig.savefig("plots/sec{}_fid{}.png".format(args.second, str(i)))
     # cleanup
-    Path(video_name).unlink()
-    
+    # Path(video_name).unlink()
+
     return args
 # if __name__ == "__main__":
 
@@ -180,7 +319,7 @@ def inference(args, db, app=None):
 #         help="The video file names to obtain inference results.",
 #         required=True,
 #     )
-    
+
 #     parser.add_argument(
 #         "--second",
 #         type=int,
@@ -190,7 +329,7 @@ def inference(args, db, app=None):
 #     parser.add_argument(
 #         "--app", type=str, help="The name of the model.", default='COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml',
 #     )
-    
+
 #     parser.add_argument(
 #         '--resize', default=False, action='store_true'
 #     )

@@ -5,16 +5,16 @@ import torchvision.transforms.functional as F
 import yaml
 from PIL import Image
 
-from . import carn
+from . import carn_m
 
 
 class CARN:
     def __init__(self, upscale=2):
-        self.net = carn.Net(multi_scale=True, group=1)
+        self.net = carn_m.Net(multi_scale=True, group=4)
         self.net.eval()
         self.upscale = upscale
-
-        state_dict = torch.load("/tank/kuntai/code/video-compression/dnn/CARN/carn.pth")
+        print("carm m!!!!")
+        state_dict = torch.load("/data/yuhanl/diff4/CARN-pytorch/checkpoint/carn_m.pth")
         new_state_dict = OrderedDict()
         for k, v in state_dict.items():
             name = k

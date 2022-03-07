@@ -1,96 +1,63 @@
 
-# video_name = 'videos/dashcam/dashcam_126/part%d.mp4'
+video_name = 'videos/dashcam/dashcam_1/part%d.mp4'
 # num_segments = 61
-# num_segments = 61
-# collection_name = 'Feb23_encoding_limit_compute'
-collection_name = 'Feb26_encoding_limit_compute_highergt'
-enable_cloudseg = false
+num_segments = 10
+collection_name = 'yuhan_test_feb25_freq10_num10_new_prev'
+enable_cloudseg = true
 random_seed = 37
+x264_dir = '/data/yuhanl/myh264/'
 segment_length = 10
-input_shape = [720, 1280] # H,W
-qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
-x264_dir = '/tank/kuntai/myh264/'
-compute_limit = 5
+input_shape = [1280, 720] # H,W
 
 [configuration_space]
 # left ==> right: expensive ==> cheap
-# replicate the right most (the cheapest) configuration twice at the end.
-qp = [20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50]
-res = ['1280x720', '858x480', '480x360', '352x240', '320x180']
-preset = ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast']
-bf = [1,2,3,4,5,6,7,8,9]
 
-# b_strategy = [2,1]
-# b_qfactor = [0.0, 0.1, 0.2]
-me_method = ['esa', 'umh', 'hex', 'dia']
-me_range = [16, 14, 12, 10, 8, 6, 4]
-subq = [9,8,7,6,5,4,3,2,1]
-
-
-# reducto_pixel = [0.2, 0.25, 0.3, 0.35, 0.4]
-# reducto_area = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
-# reducto_edge = [0.0075, 0.008, 0.0085, 0.009, 0.0095]
+# qp = [24, 27, 30, 36]
+# fr = [30, 10, 3]
+# res = [720, 480, 360, 240]
+reducto_pixel = [0.2, 0.25, 0.3, 0.35, 0.4]
+reducto_area = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+reducto_edge = [0.0075, 0.008, 0.0085, 0.009, 0.0095]
 
 
 [backprop]
-lr = 0.1
-bw_weight = 0.07
-reconstruction_loss_weight = 0.5
+lr = 0.2
+bw_weight = 20
 train = true # update the configuration or not
-# std_score_mean_weight = 0
-compute_weight = 1
-# sum_score_mean_weight = 1
-app = 'EfficientDet_d0'
+std_score_mean_weight = 0
+compute_weight = 0.04
+sum_score_mean_weight = 1
+app = 'EfficientDet_d2'
 early_optimize = true
 visualize = false
-difference_threshold = 0.25
-tile_size = 80
-macroblock_shape = [9, 16]
-high_quality = 20
-low_quality = 40
 
 
     [backprop.frozen_config]
+    res = '640x360'
+    fr = 10
+    qp = 0
 
     [backprop.tunable_config]
     # 1: expensive, 0: cheap.
     # reducto_pixel = 1.0
     # reducto_area = 1.0
     # reducto_edge = 1.0
-
-    qp = 1.0
-    res = 1.0
-    preset = 1.0
-    bf = 1.0
-    me_method = 1.0
-    me_range = 1.0
-    subq = 1.0
-    # macroblocks = true
+    cloudseg = true
 
     [backprop.tunable_config_lr]
-    # macroblocks = 2000 
-
-
-    # qp = 0.5
-    # res = 0.5
-    # fr = 0.5
-    # cloudseg = 7e-4
+    cloudseg = 7e-4
     # app = 'EfficientDet_d2'
     # tunable_configs = ['reducto_pixel', 'reducto_area', 'reducto_edge']
-    
+
 
 
 
 [ground_truths_config]
-app = 'EfficientDet_d0'
-qp = 18
-res = '1280x720'
+app = 'EfficientDet_d2'
+qp = 0
+res = '1280:720'
 fr = 10
-bf = 1
-me_method = "esa"
-me_range = 16
-subq = 9
-preset = "veryslow"
+cloudseg = false
 
 
 [inference_config]
@@ -99,7 +66,7 @@ enable_visualization = false
 visualize_step_size = 1
 
 [examine_config]
-force_examine = false
+force_examine = true
 
 
 
@@ -109,10 +76,10 @@ size_threshold = 0.08
 
 
 
-[EfficientDet_d0]
-confidence_threshold = 0.5
+[EfficientDet_d2]
+confidence_threshold = 0.2
 confidence_lb = 0.08
 confidence_ub = 0.32
-gt_confidence_threshold = 0.5
+gt_confidence_threshold = 0.2
 class_ids = [0, 1, 2, 3, 4, 6]
 iou_threshold = 0.5

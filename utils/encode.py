@@ -1,5 +1,4 @@
 
-
 import argparse
 import gc
 import logging
@@ -56,14 +55,14 @@ def tile_mask(mask, tile_size):
     """
         The mask should be of shape [H, W]
         This function will tile each element into a small tile x tile matrix.
-        Eg: 
+        Eg:
         mask = [    1   2
                     3   4]
         tile_mask(mask, 2) will return
         ret =  [    1   1   2   2
                     1   1   2   2
                     3   3   4   4
-                    3   3   4   4]      
+                    3   3   4   4]
     """
     assert isinstance(mask, torch.Tensor)
     t = tile_size
@@ -77,25 +76,25 @@ def tile_mask(mask, tile_size):
 
 
 def normal_encoding(args, input_video, output_video):
-    
+
     assert hasattr(args, 'fr')
     assert hasattr(args, 'res')
-    assert hasattr(args, 'qp') ^ hasattr(args, 'macroblocks') 
+    assert hasattr(args, 'qp') ^ hasattr(args, 'macroblocks')
     logger = logging.getLogger('encode')
-    
-    
-    
+
+
+
     ffmpeg_command = ["ffmpeg"]
     ffmpeg_env = os.environ.copy()
     x264_dir = settings.x264_dir
-    
-    
+
+
     if hasattr(args, 'macroblocks'):
-        
+
         logger.info('Perform RoI encoding')
-        
-        
-        
+
+
+
         # write QP matrix
         mask = args.macroblocks
         mask = torch.Tensor(mask)
@@ -103,7 +102,7 @@ def normal_encoding(args, input_video, output_video):
         assert settings.backprop.tile_size % 16 == 0
         mask = tile_mask(mask, (settings.backprop.tile_size // 16))
         mask =  mask.unsqueeze(0)
-        
+
         # binarize and the mask by 1
         mask = mask.unsqueeze(0)
         mask = (mask>0.5).float()
@@ -113,21 +112,21 @@ def normal_encoding(args, input_video, output_video):
         mask = (mask>0.5).int()
         mask = mask[0]
         logger.info('Mean after padding: %.3f', mask.float().mean())
-        
+
         mask = torch.cat([mask for i in range(10)])
         mask = torch.where(
-            mask > 0.5, 
+            mask > 0.5,
             settings.backprop.high_quality * torch.ones_like(mask).int(),
             settings.backprop.low_quality * torch.ones_like(mask).int())
-        
-        
+
+
         bio = io.BytesIO()
         for i in range(mask.shape[0]):
             np.savetxt(bio, mask[i], fmt="%i")
         qp_file_string = bio.getvalue().decode('latin1')
 
         # set_trace()
-            
+
 
 
         # for i in range(mask.shape[0]):
@@ -145,14 +144,14 @@ def normal_encoding(args, input_video, output_video):
         with open(f"{x264_dir}/../code/qp_matrix_file", "w") as qp_file:
 
             qp_file.write(qp_file_string)
-                    
-                    
+
+
         ffmpeg_command = [f"{x264_dir}/ffmpeg-3.4.8/ffmpeg"]
         ffmpeg_env["LD_LIBRARY_PATH"] = f"{x264_dir}/../lib"
-                    
-        
-        
-    
+
+
+
+
     ffmpeg_command += [
         "-y",
         "-hide_banner",
@@ -164,7 +163,7 @@ def normal_encoding(args, input_video, output_video):
         "-s",
         f"{args.res}"
     ]
-    
+
     if hasattr(args, 'bf'):
         ffmpeg_command += ["-bf", f"{args.bf}"]
     if hasattr(args, 'me_range'):
@@ -178,21 +177,21 @@ def normal_encoding(args, input_video, output_video):
         f"fps={args.fr}",]
     if 'qp' in args:
         ffmpeg_command += [
-            '-c:v', 
-            'libx264', 
+            '-c:v',
+            'libx264',
             "-qp",
             f"{args.qp}"]
     ffmpeg_command += [output_video,]
-    
+
     logger.info(f'Encoding command is: {ffmpeg_command}')
-        
+
 
     subprocess.check_output(ffmpeg_command, env=ffmpeg_env)
-        
+
     # input_video_config = read_video_config(input_video)
     output_video_config = read_video_config(output_video)
     output_video_config['encoded_frames'] = list(range(output_video_config['#frames']))
-    
+
     return output_video_config
 
 
@@ -200,24 +199,23 @@ def normal_encoding(args, input_video, output_video):
 def encode(args):
 
     input_video = args.input % args.second
-    # nput_video = args.input % 1
     prefix = f"cache/temp_{time.time()}"
     output_video = prefix + '.mp4'
-    
-    
+
+
     has_reducto = False
     for differencer in reducto_differencers:
         if hasattr(args, 'reducto_' + differencer.feature):
             has_reducto = True
             break
-    
+
     if not has_reducto:
-        
+
         return output_video, normal_encoding(args, input_video, output_video)
 
 
-        
-        
+
+
     else:
 
         assert args.fr == settings.ground_truths_config.fr, 'The frame rate of reducto must align with the ground truth.'
@@ -234,14 +232,14 @@ def encode(args):
         # video_config = read_video_config(video_name)
         prev_frame = None
         prev_frame_pil = None
-        
+
         remaining_frames = set()
 
         with ThreadPoolExecutor(max_workers=3) as executor:
 
             # for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
             for fid, frame in read_video(video_name):
-                
+
                 # convert image to cv2 format for reducto
                 cur_frame = np.array(T.ToPILImage()(frame[0]))[:, :, ::-1].copy()
 
@@ -251,13 +249,13 @@ def encode(args):
                     executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
                     prev_frame = cur_frame
                     prev_frame_pil = T.ToPILImage()(frame[0])
-                    
+
                     remaining_frames = remaining_frames | {fid}
-                    
+
                 else:
 
                     discard = True
-                    
+
                     for differencer in reducto_differencers:
                         if hasattr(args, 'reducto_' + differencer.feature):
                             difference_value = differencer.cal_frame_diff(differencer.get_frame_feature(cur_frame), differencer.get_frame_feature(prev_frame))
@@ -275,13 +273,13 @@ def encode(args):
                     else:
                         executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
 
-                
+
         logger.debug('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % len(remaining_frames))
 
 
 
-        
-        
+
+
         subprocess.run(
             [
                 "ffmpeg",
@@ -294,8 +292,8 @@ def encode(args):
                 prefix + '/%010d.png',
                 "-s",
                 f"{args.res}",
-                '-c:v', 
-                'libx264', 
+                '-c:v',
+                'libx264',
                 "-qp",
                 f"{args.qp}",
                 "-preset",

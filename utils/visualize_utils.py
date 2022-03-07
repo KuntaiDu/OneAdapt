@@ -10,6 +10,7 @@ import torchvision.transforms as T
 
 
 
+
 def visualize_heat_by_summarywriter(
     image, heat, tag, writer, fid, tile=True, alpha=0.5
 ):
@@ -29,5 +30,7 @@ def visualize_heat_by_summarywriter(
     fig.savefig(buf, bbox_inches="tight")
     buf.seek(0)
     result = PIL.Image.open(buf)
+    result = result.convert('RGB')
+    result.save(tag+'.jpg')
     writer.add_image(tag, T.ToTensor()(result), fid)
     plt.close(fig)

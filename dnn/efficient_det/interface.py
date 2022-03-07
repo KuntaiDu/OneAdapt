@@ -204,9 +204,8 @@ class EfficientDet(DNN):
             context = torch.enable_grad()
         else:
             context = torch.no_grad()
-            
-        with context: 
 
+        with context:
             features, regression, classification, anchors = self.model(x)
 
             # postprocessing
@@ -236,7 +235,7 @@ class EfficientDet(DNN):
 
             if detach:
                 ret = ret.to("cpu")
-            
+
             if feature:
                 return {"instances": ret, "features": features}
             else:

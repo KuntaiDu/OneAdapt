@@ -1,4 +1,3 @@
-
 import av
 import torch
 import torchvision.transforms as T
@@ -17,18 +16,18 @@ def read_video(video_name):
 
     for fid, frame in enumerate(container.decode(video=0)):
         yield (fid, T.ToTensor()(frame.to_image()).unsqueeze(0))
-        
+
 def augment(result, lengt):
     assert len(result) <= lengt
-    
+
     factor = (lengt + (len(result) - 1)) // len(result)
 
     return torch.cat([result[i // factor][None, :, :, :] for i in range(lengt)])
 
 
-        
+
 def read_video_to_tensor(video_name):
-    
+
     video = list(read_video(video_name))
     video = torch.cat([i[1] for i in video])
     video = augment(video, settings.segment_length)
