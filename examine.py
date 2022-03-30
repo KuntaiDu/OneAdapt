@@ -67,11 +67,12 @@ def examine(x_args, gt_args, x_app, db):
             logger.warning('Previous reexamine results exist. But force reexamine.')
 
     # print(x_args)
-    x = inference(x_args, db, x_app)
+    x_args.cloudseg = True
+    x, all_images = inference(x_args, db, x_app)
 
     # print(gt_args)
 
-    gt = inference(gt_args, db, x_app)  # will raise an error inside if the model of GT does not align with the model of x.
+    gt, _ = inference(gt_args, db, x_app)  # will raise an error inside if the model of GT does not align with the model of x.
 
     x_dict = pickle.loads(x['inference_result'])
     gt_dict = pickle.loads(gt['inference_result'])
@@ -82,22 +83,19 @@ def examine(x_args, gt_args, x_app, db):
 
     # set_trace()
 
-
-    metrics =  x_app.calc_accuracy(x_dict, gt_dict)
+    metrics =  x_app.calc_accuracy(x_dict, gt_dict, x_args)
     # metrics_debug  = x_app.calc_accuracy(x_dict, gt_dict, debug=True)
 
     del x.inference_result
     del x.timestamp
-    del x._id
 
     x['timestamp'] = str(datetime.now())
-    x.update(metrics)
-    x.update({'ground_truth': gt_args})
-    # x.update({'f1_debug': metrics_debug['f1_debug']})
+    # x.update(metrics)
+    # x.update({'ground_truth': gt_args})
     # x.update({'recall_debug': metrics_debug['re']})
     # x.update({'fn_hidden_ratio': metrics_debug['fn_hidden_ratio']})
 
-    x.update({'norm_bw': x['bw'] * 1.0 / gt['bw']})
+    x.update({'f1': metrics['acc']})
 
     db['stats'].insert_one(x)
 

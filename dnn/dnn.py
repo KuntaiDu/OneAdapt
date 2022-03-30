@@ -10,6 +10,7 @@ from pdb import set_trace
 from features.features import *
 import numpy as np
 from config import settings
+from pycocotools.cocoeval import COCOeval
 
 from munch import *
 
@@ -36,12 +37,13 @@ class DNN:
         if require_deepcopy:
             result = deepcopy(result)
 
-
         scores = result["instances"].scores
         class_ids = result["instances"].pred_classes
         # if gt is False:
         #     print(scores)
         inds = scores < 0
+        self.name = 'COCO-INSTANCESEGMENTATION/MASK_RCNN_R_50_FPN_1X'
+        # print(self.name)
         if class_check:
             for i in getattr(settings, self.name).class_ids:
                 inds = inds | (class_ids == i)
@@ -49,8 +51,7 @@ class DNN:
             inds = scores > -1
 
 
-        args = getattr(settings, self.name)
-
+        args = getattr(settings, 'COCO-INSTANCESEGMENTATION/MASK_RCNN_R_50_FPN_1X')
         if confidence_check:
            if gt:
                inds = inds & (scores > args.gt_confidence_threshold)
@@ -81,9 +82,9 @@ class DNN:
         feature_list = torch.cat(feature_list, dim=0)
         return get_features(feature_list, getattr(settings, self.name))
 
-    def calc_accuracy(self, result_dict, gt_dict, debug=False):
-        if debug:
-            return self.calc_accuracy_detection_direct(result_dict, gt_dict)
+    def calc_accuracy(self, result_dict, gt_dict):
+        if self.type == 'Segmentation':
+            return self.calc_accuracy_segmentation(result_dict, gt_dict)
         if self.type == "Detection":
             return self.calc_accuracy_detection(result_dict, gt_dict)
         elif self.type == "Keypoint":
@@ -97,13 +98,163 @@ class DNN:
     #         return self.calc_accuracy_loss_detection(result, gt, args)
     #     else:
     #         raise NotImplementedError()
+    def calculate_iou_mask(self, mask1, mask2):
+        iou_score = torch.zeros((mask1.shape[0], mask2.shape[0]))
+        for i in range(mask1.shape[0]):
+            for j in range(mask2.shape[0]):
+                intersection = torch.logical_and(mask1[i], mask2[j])
+                union = torch.logical_or(mask1[i], mask2[j])
+                iou_score[i][j] = torch.sum(intersection).item() / torch.sum(union).item()
+
+        return iou_score
+    def compute_average_precision(self, precision, recall):
+        """ Compute Avearage Precision by all points.
+        Arguments:
+            precision (np.array): precision values.
+            recall (np.array): recall values.
+        Returns:
+            average_precision (np.array)
+        """
+        precision = np.concatenate(([0.], precision, [0.]))
+        recall = np.concatenate(([0.], recall, [1.]))
+        for i in range(precision.size - 1, 0, -1):
+            precision[i - 1] = np.maximum(precision[i - 1], precision[i])
+        ids = np.where(recall[1:] != recall[:-1])[0]
+        average_precision = np.sum((recall[ids + 1] - recall[ids]) * precision[ids + 1])
+        return average_precision
+
+    def calculate_map(self, pairwise_iou, gt, result):
+        iou_thresholds = np.arange(0.5, 0.95, 0.05)
+        # print(pairwise_iou)
+        map = []
+        for cls_index in getattr(settings, self.name).class_ids:
+            prec = []
+            rec = []
+            for iou_threshold in iou_thresholds:
+                tp = 0
+                fp = 0
+                fn = 0
+
+                for i in range(len(result.pred_classes)):
+                    if result.pred_classes[i] != cls_index: continue
+                    if len(pairwise_iou[i, :]) == 0:
+                        continue
+                    max_iou = max(pairwise_iou[i, :])
+                    max_j = pairwise_iou[i, :].argmax()
+
+                    if max_iou >= iou_threshold:
+                        if gt.pred_classes[max_j] == result.pred_classes[i]:
+                            tp += 1
+                        else:
+                            fp += 1
+                for j in range(len(gt.pred_classes)):
+                    if gt.pred_classes[j] != cls_index: continue
+                    max_iou = max(pairwise_iou[:, j])
+                    max_i = pairwise_iou[:, j].argmax()
+                    if len(pairwise_iou[:, j]) == 0:
+                        continue
+                    if max_iou >= iou_threshold:
+                        if gt.pred_classes[j] != result.pred_classes[max_i]:
+                            fn += 1
+                    else:
+                        fn += 1
+                if tp == 0:
+                    if np.sum(gt.pred_classes.cpu().numpy() == cls_index) == 0:
+                        prec.append(1)
+                        rec.append(1)
+                    else:
+                        prec.append(0)
+                        rec.append(0)
+
+                else:
+                    prec.append(tp/(tp+fp))
+                    rec.append(tp/(tp+fn))
+
+
+
+            map.append(self.compute_average_precision(prec, rec))
+        return np.array(map).mean()
+
+    def calculate_miou(self, gt, result):
+        mean_iou = []
+        if len(gt.pred_masks) == 0:
+            if len(result.pred_masks) > 0:
+                return 0
+            else:
+                return 1
+        if len(result.pred_masks) == 0:
+            if len(gt.pred_masks) > 0:
+                return 0
+            else:
+                return 1
+        for cls_name in getattr(settings, self.name).class_ids:
+            prediction_mask = torch.zeros(gt.pred_masks[0].shape)
+            gt_mask = torch.zeros(gt.pred_masks[0].shape)
+
+            for idx in range(len(result.pred_masks)):
+                if result.pred_classes[idx] == cls_name:
+                    prediction_mask = torch.logical_or(prediction_mask, result.pred_masks[idx] )
+            for  idx in range(len(gt.pred_masks)):
+                if gt.pred_classes[idx] == cls_name:
+                    gt_mask = torch.logical_or(gt_mask, gt.pred_masks[idx] )
+            intersection = torch.logical_and(prediction_mask,gt_mask)
+            union = torch.logical_or(prediction_mask,gt_mask)
+            if torch.sum(union).item() == 0:
+                continue
+            iou = torch.sum(intersection).item() / torch.sum(union).item()
+            mean_iou.append(iou)
+        return sum(mean_iou) / len(mean_iou)
+    def calc_accuracy_segmentation(self, result_dict, gt_dict):
+
+        assert (
+            result_dict.keys() == gt_dict.keys()
+        ), "Result and ground truth must contain the same number of frames."
+        print("In calculate accuracy!!!!!!!!")
+        f1s = []
+        prs = []
+        res = []
+        tps = []
+        fps = []
+        fns = []
+        ious = []
+        ret_dict = {}
+        maps = []
+        for fid in result_dict.keys():
+            result = result_dict[fid]
+            gt = gt_dict[fid]
+
+            result = self.filter_result(result, False)
+            gt = self.filter_result(gt, True)
+
+            result = result["instances"]
+            gt = gt["instances"]
+            if len(result) == 0:
+                if len(gt) == 0:
+                    ious.append(1)
+                else:
+                    ious.append(0)
+                continue
+            ious.append(self.calculate_miou(gt, result))
+
+            iou_pairwise = self.calculate_iou_mask(result.pred_masks, gt.pred_masks)
+            # # ious.append(self.calculate_miou(iou_pairwise, gt, result))
+            maps.append(self.calculate_map(iou_pairwise, gt, result))
+
+
+        ret_dict['f1'] = sum(ious)/len(ious)
+        if len(maps) == 0:
+            ret_dict['map'] = 0 
+        else:
+            ret_dict['map'] = sum(maps)/len(maps)
+
+        return ret_dict
 
     def calc_accuracy_detection(self, result_dict, gt_dict):
 
         assert (
             result_dict.keys() == gt_dict.keys()
         ), "Result and ground truth must contain the same number of frames."
-        
+
         f1s = []
         prs = []
         res = []
@@ -397,8 +548,8 @@ class DNN:
 
     def get_undetected_ground_truth_index(self, result, gt):
 
-        if self.type == "Segmentation":
-            raise NotImplementedError
+        # if self.type == "Segmentation":
+        #     raise NotImplementedError
         args = getattr(settings, self.name)
         gt = deepcopy(gt)
         result = deepcopy(result)

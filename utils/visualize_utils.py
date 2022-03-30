@@ -16,8 +16,10 @@ def visualize_heat_by_summarywriter(
 ):
 
     fig, ax = plt.subplots(1, 1, figsize=(11, 5), dpi=200)
+    heat = heat.cpu().detach()
+    # heat = heat.log()
     ax = sns.heatmap(
-        heat.cpu().detach().numpy(),
+        heat.numpy(),
         zorder=3,
         alpha=alpha,
         ax=ax,

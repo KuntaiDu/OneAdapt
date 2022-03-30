@@ -2,7 +2,8 @@
 video_name = 'videos/dashcam/dashcam_1/part%d.mp4'
 # num_segments = 61
 num_segments = 10
-collection_name = 'yuhan_test_feb25_freq10_num10_new_prev'
+collection_name = 'test'
+
 enable_cloudseg = true
 random_seed = 37
 x264_dir = '/data/yuhanl/myh264/'
@@ -21,13 +22,13 @@ reducto_edge = [0.0075, 0.008, 0.0085, 0.009, 0.0095]
 
 
 [backprop]
-lr = 0.2
+lr = 1e-4
 bw_weight = 20
 train = true # update the configuration or not
 std_score_mean_weight = 0
 compute_weight = 0.04
 sum_score_mean_weight = 1
-app = 'EfficientDet_d2'
+app = 'Segmentation/fcn_resnet50'
 early_optimize = true
 visualize = false
 
@@ -35,7 +36,7 @@ visualize = false
     [backprop.frozen_config]
     res = '640x360'
     fr = 10
-    qp = 0
+    qp = 34
 
     [backprop.tunable_config]
     # 1: expensive, 0: cheap.
@@ -53,8 +54,8 @@ visualize = false
 
 
 [ground_truths_config]
-app = 'EfficientDet_d2'
-qp = 0
+app = 'Segmentation/fcn_resnet50'
+qp = 34
 res = '1280:720'
 fr = 10
 cloudseg = false
@@ -76,10 +77,10 @@ size_threshold = 0.08
 
 
 
-[EfficientDet_d2]
+['Segmentation/fcn_resnet50']
 confidence_threshold = 0.2
 confidence_lb = 0.08
 confidence_ub = 0.32
 gt_confidence_threshold = 0.2
-class_ids = [0, 1, 2, 3, 4, 6]
+class_ids = [2]
 iou_threshold = 0.5

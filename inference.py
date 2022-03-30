@@ -125,6 +125,7 @@ def encode(args):
                     logger.debug('Encode frame %d', fid)
 
                     executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
+                    executor.submit(T.ToPILImage()(frame[0]).save, ('temp/%010d.png' % fid))
                     prev_frame = cur_frame
                     prev_frame_pil = T.ToPILImage()(frame[0])
 
@@ -145,11 +146,13 @@ def encode(args):
                     if not discard:
                         logger.debug('Encode frame %d', fid)
                         executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
+                        executor.submit(T.ToPILImage()(frame[0]).save, ('temp/%010d.png' % fid))
                         prev_frame = cur_frame
                         prev_frame_pil = T.ToPILImage()(frame[0])
                         remaining_frames = remaining_frames | {fid}
                     else:
                         executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
+                        executor.submit(prev_frame_pil.save, ('temp/%010d.png' % fid))
 
 
         logger.debug('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % len(remaining_frames))
@@ -233,10 +236,9 @@ def inference(args, db, app=None):
         writer = SummaryWriter('runs/'+ args_string)
 
 
-    assert app is not None and app.name == args.app, f'{args}'
+    # assert app is not None and app.name == args.app, f'{args}'
     video_name, remaining_frames = encode(args)
     video_config = read_video_config(video_name)
-
 
 
 
@@ -247,7 +249,8 @@ def inference(args, db, app=None):
 
     if args.cloudseg:
         logger.info('CloudSeg enabled. Will perform SR.')
-
+    all_images = []
+    conf.SR_dnn.net.eval()
     with torch.no_grad():
 
         for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
@@ -256,16 +259,13 @@ def inference(args, db, app=None):
                 frame = T.functional.adjust_gamma(frame, args.gamma)
 
             if args.cloudseg:
-                if args.second > 0:
-                    new_state_dict = torch.load(f'checkpoints/carn_m_{args.second - 1}.pth')
-                    conf.SR_dnn.net.load_state_dict(new_state_dict)
+                # load_sec = int((args.second) / 1 ) * 1
+                # new_state_dict = torch.load(f'checkpoints_test/carn_m_{load_sec}_normal_update_saliency_block.pth')
+                # conf.SR_dnn.net.load_state_dict(new_state_dict)
+
                 frame = conf.SR_dnn(frame.to('cuda:1')).cpu()
-
-            inference_results[fid] = app.inference(frame, grad=False, detach=True, dryrun=False)
-            # print(frame.shape)
-
-
-
+            all_images.append(frame)
+            inference_results[fid] =  app.inference(frame, grad=False, detach=True)
             if config.enable_visualization and fid % config.visualize_step_size == 0:
 
                 logger.debug('Visualizing frame %d...', fid)
@@ -290,7 +290,7 @@ def inference(args, db, app=None):
     })
     args.update(video_config)
     # insert result to database
-    db['inference'].insert_one(args)
+    # db['inference'].insert_one(args)
     # for i in range(10):
     #     sorted_vals = np.sort(np.array(inference_results[i]['instances'].scores))
     #     p = 1. * np.arange(len(sorted_vals))/(len(sorted_vals) - 1)
@@ -301,7 +301,7 @@ def inference(args, db, app=None):
     # cleanup
     # Path(video_name).unlink()
 
-    return args
+    return args, torch.stack(all_images )
 # if __name__ == "__main__":
 
 #     # set the format of the logger

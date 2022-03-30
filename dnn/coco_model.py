@@ -83,7 +83,7 @@ class COCO_Model(DNN):
 
         self.cfg = get_cfg()
         self.cfg.merge_from_file(model_zoo.get_config_file(name))
-        self.cfg.DOWNLOAD_CACHE = "/data2/kuntai/torch/detectron2/"
+        self.cfg.DOWNLOAD_CACHE = "/data/yuhanl/torch/detectron2/"
 
         # # to make it run on cpu, just for measurement purpose.
         # self.cfg.MODEL.DEVICE='cpu'
@@ -103,6 +103,8 @@ class COCO_Model(DNN):
             self.type = "Detection"
         elif "Keypoint" in self.name:
             self.type = "Keypoint"
+        elif "Segmentation" in self.name:
+            self.type = "Segmentation"
         else:
             raise NotImplementedError
 
@@ -144,7 +146,7 @@ class COCO_Model(DNN):
 
         return image, h, w, transform
 
-    def inference(self, image, detach=False, grad=False):
+    def inference(self, image, detach=False, grad=False, feature=False):
 
         if self.predictor is None:
             self.predictor = DefaultPredictor(self.cfg)
@@ -154,9 +156,11 @@ class COCO_Model(DNN):
         image, h, w, _ = self.preprocess_image(image)
 
         with torch.enable_grad() if grad else torch.no_grad():
-            ret = self.predictor.model(
+            all_res = self.predictor.model(
                 [{"image": image[0], "height": h, "width": w}]
-            )[0]
+            )
+            ret = all_res[0]
+            
 
         if detach:
             for key in ret:
@@ -180,8 +184,7 @@ class COCO_Model(DNN):
             features = model.backbone(images.tensor)
             proposals, logits = model.proposal_generator(images, features, None)
 
-        ret = proposals[0]
-
+        ret = features
         if detach:
             ret = ret.to("cpu")
         return ret
