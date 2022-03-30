@@ -78,7 +78,8 @@ def tile_mask(mask, tile_size):
 
 def normal_encoding(args, input_video, output_video):
     
-    assert hasattr(args, 'fr')
+    # either specify the frame rate or provide the png of each frame.
+    assert hasattr(args, 'fr') ^ ('png' in input_video)
     assert hasattr(args, 'res')
     assert hasattr(args, 'qp') ^ hasattr(args, 'macroblocks') 
     logger = logging.getLogger('encode')
@@ -92,38 +93,45 @@ def normal_encoding(args, input_video, output_video):
     
     if hasattr(args, 'macroblocks'):
         
-        logger.info('Perform RoI encoding')
+        
         
         
         
         # write QP matrix
         mask = args.macroblocks
-        mask = torch.Tensor(mask)
-        assert len(mask.shape) == 2
-        assert settings.backprop.tile_size % 16 == 0
-        mask = tile_mask(mask, (settings.backprop.tile_size // 16))
-        mask =  mask.unsqueeze(0)
+        if isinstance(mask, torch.Tensor):
+            mask = mask.detach().numpy()
+        else:
+            assert isinstance(mask, list)
+            mask = np.array(mask)
+        logger.info(f'Perform RoI encoding with mean qp {mask.mean()}')
+        # mask = torch.Tensor(mask)
+        # assert len(mask.shape) == 2
+        # assert settings.backprop.tile_size % 16 == 0
+        # mask = tile_mask(mask, (settings.backprop.tile_size // 16))
+        # mask =  mask.unsqueeze(0)
         
-        # binarize and the mask by 1
-        mask = mask.unsqueeze(0)
-        mask = (mask>0.5).float()
-        logger.info('Mean before padding: %.3f', mask.float().mean())
-        kernel = torch.ones([1, 1, 3, 3])
-        mask = F.conv2d(mask, kernel, stride=1, padding=1)
-        mask = (mask>0.5).int()
-        mask = mask[0]
-        logger.info('Mean after padding: %.3f', mask.float().mean())
+        # # binarize and the mask by 1
+        # mask = mask.unsqueeze(0)
+        # mask = (mask>0.5).float()
+        # logger.info('Mean before padding: %.3f', mask.float().mean())
+        # kernel = torch.ones([1, 1, 3, 3])
+        # mask = F.conv2d(mask, kernel, stride=1, padding=1)
+        # mask = (mask>0.5).int()
+        # mask = mask[0]
+        # logger.info('Mean after padding: %.3f', mask.float().mean())
         
-        mask = torch.cat([mask for i in range(10)])
-        mask = torch.where(
-            mask > 0.5, 
-            settings.backprop.high_quality * torch.ones_like(mask).int(),
-            settings.backprop.low_quality * torch.ones_like(mask).int())
+        # mask = torch.cat([mask for i in range(10)])
+        # mask = torch.where(
+        #     mask > 0.5, 
+        #     settings.backprop.high_quality * torch.ones_like(mask).int(),
+        #     settings.backprop.low_quality * torch.ones_like(mask).int())
         
         
         bio = io.BytesIO()
-        for i in range(mask.shape[0]):
-            np.savetxt(bio, mask[i], fmt="%i")
+        # for i in range(mask.shape[0]):
+        # force the RoI to be the same
+        np.savetxt(bio, mask, fmt="%i")
         qp_file_string = bio.getvalue().decode('latin1')
 
         # set_trace()
@@ -142,13 +150,13 @@ def normal_encoding(args, input_video, output_video):
         #         qp_file += "\n"
 
 
-        with open(f"{x264_dir}/../code/qp_matrix_file", "w") as qp_file:
+        with open(f"{x264_dir}/qp_matrix_file", "w") as qp_file:
 
-            qp_file.write(qp_file_string)
+            qp_file.write(qp_file_string * 10)
                     
                     
         ffmpeg_command = [f"{x264_dir}/ffmpeg-3.4.8/ffmpeg"]
-        ffmpeg_env["LD_LIBRARY_PATH"] = f"{x264_dir}/../lib"
+        ffmpeg_env["LD_LIBRARY_PATH"] = f"{x264_dir}/lib"
                     
         
         
@@ -173,9 +181,10 @@ def normal_encoding(args, input_video, output_video):
         ffmpeg_command += ["-me_method", f"{args.me_method}"]
     if hasattr(args, "subq"):
         ffmpeg_command += ["-subq", f"{args.subq}"]
-    ffmpeg_command += [
-        "-filter:v",
-        f"fps={args.fr}",]
+    if hasattr(args, 'fr'):
+        ffmpeg_command += [
+            "-filter:v",
+            f"fps={args.fr}"]
     if 'qp' in args:
         ffmpeg_command += [
             '-c:v', 
@@ -240,7 +249,10 @@ def encode(args):
         with ThreadPoolExecutor(max_workers=3) as executor:
 
             # for fid, frame in tqdm(read_video(video_name), total=video_config['#frames']):
-            for fid, frame in read_video(video_name):
+            for fid_minus_one, frame in read_video(video_name):
+                
+                # do this because ffmpeg encodes from the 1st frame not the 0th frame.
+                fid = fid_minus_one + 1
                 
                 # convert image to cv2 format for reducto
                 cur_frame = np.array(T.ToPILImage()(frame[0]))[:, :, ::-1].copy()
@@ -256,59 +268,68 @@ def encode(args):
                     
                 else:
 
-                    discard = True
+                    feature2values = {}
+                    feature2weight = {}
+                    feature2bias = {}
                     
                     for differencer in reducto_differencers:
-                        if hasattr(args, 'reducto_' + differencer.feature):
+                        if hasattr(args, 'reducto_' + differencer.feature + '_bias'):
                             difference_value = differencer.cal_frame_diff(differencer.get_frame_feature(cur_frame), differencer.get_frame_feature(prev_frame))
-                            logger.debug('Frame %d, feat %s, value %.5f', fid, differencer.feature, difference_value)
-                            if difference_value > getattr(args, 'reducto_' + differencer.feature):
-                                discard = False
-                                break
-
-                    if not discard:
+                            feature2values[differencer.feature] = difference_value
+                            feature2weight[differencer.feature] = args['reducto_' + differencer.feature + '_weight']
+                            feature2bias[differencer.feature] = args['reducto_' + differencer.feature + '_bias']
+                            
+                    weight = sum([feature2weight[key] * (feature2values[key] - feature2bias[key])]).sigmoid()
+                    
+                    if weight > 0.5:
                         logger.debug('Encode frame %d', fid)
                         executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
                         prev_frame = cur_frame
                         prev_frame_pil = T.ToPILImage()(frame[0])
                         remaining_frames = remaining_frames | {fid}
                     else:
+                        # Do not send the new frame
                         executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
+                        
 
                 
         logger.debug('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % len(remaining_frames))
-
-
-
         
-        
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                # "-stats",
-                "-i",
-                prefix + '/%010d.png',
-                "-s",
-                f"{args.res}",
-                '-c:v', 
-                'libx264', 
-                "-qp",
-                f"{args.qp}",
-                "-preset",
-                f"{args.preset}",
-                output_video,
-            ]
-        )
-
-        shutil.rmtree(prefix)
-
-        output_video_config = read_video_config(output_video)
-        # video_config['#encoded_frames'] = set(range(video_config['#frames']))
+        output_video_config = normal_encoding(args, prefix + '/%010d.png', output_video)
         output_video_config['encoded_frames'] = list(remaining_frames)
+
+
+
+        
+        
+        # subprocess.run(
+        #     [
+        #         "ffmpeg",
+        #         "-y",
+        #         "-hide_banner",
+        #         "-loglevel",
+        #         "error",
+        #         # "-stats",
+        #         "-i",
+        #         prefix + '/%010d.png',
+        #         "-s",
+        #         f"{args.res}",
+        #         '-c:v', 
+        #         'libx264', 
+        #         "-qp",
+        #         f"{args.qp}",
+        #         "-preset",
+        #         f"{args.preset}",
+        #         output_video,
+        #     ]
+        # )
+
+        # shutil.rmtree(prefix)
+
+        # output_video_config = read_video_config(output_video)
+        # # video_config['#encoded_frames'] = set(range(video_config['#frames']))
+        # output_video_config['encoded_frames'] = list(remaining_frames)
+        
 
 
 

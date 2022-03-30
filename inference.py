@@ -102,7 +102,7 @@ def inference(args, db, app=None):
         writer = SummaryWriter('runs/'+ args_string)
         
 
-    assert app is not None and app.name == args.app, f'{args}'
+    assert app is not None and app.name == args.app.replace('.', '_').replace('/', '_'), f'{args}'
     video_name, video_config = encode(args)
 
 
@@ -163,6 +163,7 @@ def inference(args, db, app=None):
     Path(video_name).unlink()
     
     return args
+
 # if __name__ == "__main__":
 
 #     # set the format of the logger

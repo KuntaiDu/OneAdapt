@@ -75,9 +75,10 @@ def read_expensive_from_config(gt_args, state, app, db, command_line_args):
     
     for args in conf.serialize_most_expensive_state(gt_args.copy(), conf.state2config(state), conf.serialize_order):
         
-        if hasattr(state, 'macroblocks'):
+        # use ground truth here. For debugging purpose.
+        if hasattr(args, 'qp'):
             del args.qp
-            args.macroblocks = state['macroblocks']
+        args.macroblocks = state['macroblocks']
         # encode
         # args['gamma'] = 1.0
         video_name, remaining_frames = encode(args)
@@ -246,35 +247,85 @@ def optimize(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
 
 
 def optimize_macroblocks(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
-    
+
     args = args.copy()
     
-    hq_args = args.copy()
-    del hq_args.macroblocks
-    hq_args.qp = settings.backprop.high_quality
-    logger.info(f'Encoding with high quality (QP {hq_args.qp})')
-    hq_name, hq_config = encode(hq_args)
-    hq_video = read_video_to_tensor(hq_name)
-    
-    lq_args = hq_args
-    lq_args.qp = settings.backprop.low_quality
-    logger.info(f'Encoding with low quality (QP {lq_args.qp})')
-    lq_name, lq_config = encode(lq_args)
-    lq_video = read_video_to_tensor(lq_name)
+    tile_size = settings.backprop.tile_size
     
     
-    mask = args.macroblocks
-    mask = tile_mask(mask, settings.backprop.tile_size)
-    mask = mask[None, None, :, :]
-    masked_video = mask * hq_video + (1-mask) * lq_video
-    masked_bw = (mask.mean() * hq_config['bw'] + (1-mask.mean()) * lq_config['bw']) / gt_config['bw']
+    # generate ground truth
+    gt_args = args.copy()
+    del gt_args.macroblocks
+    gt_args.qp = settings.ground_truths_config.qp
+    logger.info(f'Getting ground truth video')
+    gt_name, gt_config = encode(gt_args)
+    gt_video = read_video_to_tensor(gt_name)
     
-    diff_video = (masked_video - hq_video).abs()
     
-    loss = settings.backprop.reconstruction_loss_weight * (diff_video * grad).abs().mean() +\
-        settings.backprop.bw_weight * masked_bw
+    
+    
+    # generate videos with different qp levels
+    qps = list(settings.backprop.qps)
+    bws, videos = [], []
+    for qp in qps:
         
-    loss.backward()
+        qp_args = gt_args.copy()
+        qp_args.qp = qp
+        logger.info(f'Encode with QP {qp_args.qp}')
+        qp_name, qp_config = encode(qp_args)
+        qp_video = read_video_to_tensor(qp_name)
+        
+        bws.append(qp_config['bw'])
+        videos.append(qp_video)
+    
+    # pixel error
+    emaps = [abs(video - gt_video) for video in videos]
+    
+    # saliency * pixel error
+    saliency_sums = [F.conv2d(
+        abs(grad * emap).sum(dim=1, keepdim=True).sum(dim=0, keepdim=True), 
+        torch.ones([1, 1, tile_size, tile_size]),
+        stride=tile_size
+    ) for emap in emaps]
+    
+    perc = settings.backprop.bw_percentage
+    
+    
+    delta = (saliency_sums[1] - saliency_sums[0]).detach()
+    delta = delta.flatten().sort()[0]
+    delta = delta[-int(len(delta) * perc)]
+    
+    relative_bw = bws[1] / bws[0]
+    bw_weight = delta / (1-relative_bw)
+    objectives = [saliency_sums[i] + bw_weight * torch.ones_like(saliency_sums[i]) * bws[i] / bws[0] for i in range(len(qps))]
+    
+    # start from the lowest quality.
+    qpmap = torch.ones_like(objectives[-1]).int() * qps[-1]
+    current_objective = objectives[-1]
+    for i in range(0, len(qps)):
+        qpmap = torch.where(current_objective > objectives[i], torch.ones_like(qpmap) * qps[i], qpmap)
+        current_objective = torch.where(current_objective > objectives[i], objectives[i], current_objective)
+        
+    # finalize optimization, prep 
+    state[key] = qpmap[0,0]
+    
+    
+    # directly calculate the closed-form solution.
+    
+    
+    # # optimize the parameters.
+    # mask = args.macroblocks
+    # mask = tile_mask(mask, settings.backprop.tile_size)
+    # mask = mask[None, None, :, :]
+    # masked_video = mask * hq_video + (1-mask) * lq_video
+    # masked_bw = (mask.mean() * hq_config['bw'] + (1-mask.mean()) * lq_config['bw']) / gt_config['bw']
+    
+    # diff_video = (masked_video - hq_video).abs()
+    
+    # loss = settings.backprop.reconstruction_loss_weight * (diff_video * grad).abs().mean() +\
+    #     settings.backprop.bw_weight * masked_bw
+        
+    # loss.backward()
     
     return True
 
@@ -300,8 +351,8 @@ def main(command_line_args):
     writer = SummaryWriter(f"runs/{command_line_args.input}/{command_line_args.approach}")
 
     conf_thresh = settings[app.name].confidence_threshold
-    conf_lb = settings[app.name].confidence_lb
-    conf_ub = settings[app.name].confidence_ub
+    # conf_lb = settings[app.name].confidence_lb
+    # conf_ub = settings[app.name].confidence_ub
 
     logger.info("Application: %s", app.name)
     logger.info("Input: %s", command_line_args.input)
@@ -314,35 +365,36 @@ def main(command_line_args):
 
         
     # initialize configurations pace.
-    parameters = []
+    placeholder = torch.tensor([1.])
+    placeholder.requires_grad = True
+    placeholder.grad = torch.zeros_like(placeholder)
+    parameters = [{"params": placeholder, "lr": 0.}]
     for key in conf.serialize_order:
         if key == 'cloudseg':
+            for param in conf.SR_dnn.net.parameters():
+                param.requires_grad = True
             parameters.append({
                 "params": conf.SR_dnn.net.parameters(), 
                 "lr": settings.backprop.tunable_config_lr[key]
             })
             continue
+        elif key == 'macroblocks':
+            # will directly solve the closed-form solution. No lr needed.
+            state[key] = torch.ones(settings.backprop.macroblock_shape).int() * settings.backprop.qps[0]
+            continue
+        
         lr = settings.backprop.lr
         if key in settings.backprop.tunable_config_lr.keys():
             lr = settings.backprop.tunable_config_lr[key]
         
-        if key == 'macroblocks':
-            # create variable
-            state[key] = 0.6* torch.ones(settings.backprop.macroblock_shape)
-        else:
-            state[key] = torch.tensor(settings.backprop.tunable_config[key])
+        state[key] = torch.tensor(settings.backprop.tunable_config[key])
+        state[key].requires_grad=True
         parameters.append({
             "params": state[key],
             "lr": lr
         })
-
-
+    
     # build optimizer
-    for tensor in state.values():
-        tensor.requires_grad = True
-    if settings.backprop.tunable_config.get('cloudseg', None):
-        for param in conf.SR_dnn.net.parameters():
-            param.requires_grad = True
     optimizer = torch.optim.SGD(parameters)
 
 
@@ -370,6 +422,9 @@ def main(command_line_args):
         
         if 'gamma' in state:
             video = (video ** state['gamma']).clamp(0, 1)
+
+        if any('reducto' in state.keys()):
+            video = reducto_process(video)
 
 
         # update parameters
@@ -408,6 +463,7 @@ def main(command_line_args):
             # video.requires_grad = True
 
             saliencies = {}
+            raw_saliencies_tensor = []
             saliencies_tensor = []
 
             # calculate saliency on each frame.
@@ -425,7 +481,10 @@ def main(command_line_args):
                     # filter out unrelated classes
                     result = app.filter_result(result, confidence_check=False)
                     score = result["instances"].scores
-                    sum_score = ((score - conf_thresh) * 20).sigmoid().sum()
+                    if settings.backprop.saliency_type == 'sigmoid':
+                        sum_score = ((score - conf_thresh) * 20).sigmoid().sum()
+                    elif settings.backprop.saliency_type == 'sum':
+                        sum_score = score[score > conf_thresh].sum()
                     # score_inds = (conf_lb < score) & (score < conf_ub)
                     # logger.info('%d objects need for optimization.' % score_inds.sum())
                     # score = score[score_inds]
@@ -433,7 +492,10 @@ def main(command_line_args):
                     
                     sum_score.backward()
 
-                    saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
+                    saliency = frame_detached.grad
+                    
+                    raw_saliencies_tensor.append(saliency.clone())
+                    saliency = saliency.abs().sum(dim=1, keepdim=True)
                     
                     # average across 16x16 neighbors
                     kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
@@ -624,6 +686,9 @@ def main(command_line_args):
                     if key == 'cloudseg':
                         # already optimized when backwarding.
                         continue
+                    elif key == 'macroblocks':
+                        optimize_macroblocks(args, key, torch.cat(raw_saliencies_tensor), gt_video_config, gt_video)
+                        continue
                     optimize(args, key, torch.cat(saliencies_tensor), gt_video_config, gt_video)
 
 
@@ -632,21 +697,17 @@ def main(command_line_args):
                 optimizer.zero_grad()
 
                 # truncate                
-                for tensor in state.values():
-                    tensor.requires_grad = False
                 for key in conf.serialize_order:
                     if key == 'cloudseg':
                         continue
                     if key == 'macroblocks':
-                        state[key][state[key] > 1.] = 1.
-                        state[key][state[key] < 1e-7] = 1e-7
                         continue
+                    state[key].requires_grad = False
                     if state[key] > 1.:
                         state[key][()] = 1.
                     if state[key] < 1e-7:
                         state[key][()] = 1e-7
-                for tensor in state.values():
-                    tensor.requires_grad = True
+                    state[key].requires_grad = True
 
                 # print out current state
                 state_str = ""
@@ -657,7 +718,7 @@ def main(command_line_args):
                         continue
                     if key == 'macroblocks':
                         param = state[key]
-                        logger.info('Macroblocks: mean: %.3f, gradient mean: %.3f, std: %.3f', (param > 0.5).float().mean(), param.grad.mean(), param.grad.std())
+                        logger.info('Macroblocks: mean: %.3f', param.float().mean())
                         continue
                     state_str += '%s : %.3f, grad: %.7f\n' % (key, state[key], state[key].grad)
 

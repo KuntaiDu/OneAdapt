@@ -78,8 +78,10 @@ panoptic_segmentation_labels = [
 
 class COCO_Model(DNN):
     def __init__(self, name):
+        
+        
 
-        self.name = name
+        self.name = name.replace('.', '_').replace('/', '_')
 
         self.cfg = get_cfg()
         self.cfg.merge_from_file(model_zoo.get_config_file(name))
@@ -144,7 +146,7 @@ class COCO_Model(DNN):
 
         return image, h, w, transform
 
-    def inference(self, image, detach=False, grad=False):
+    def inference(self, image, detach=False, grad=False, dryrun=False):
 
         if self.predictor is None:
             self.predictor = DefaultPredictor(self.cfg)

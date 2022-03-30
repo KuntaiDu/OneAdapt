@@ -25,7 +25,7 @@ bwweight_list = [6]
 # res_list = [1e-6,  0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1]
 # res_list = [res_list[i] for i in range(len(res_list)) if i % 2 == 1]
 
-lr = 0.2
+lr = 0.1
 
 # lr = 0
 orig_freq = 1
@@ -40,13 +40,16 @@ def probe_range(fmt):
         idx += 1
     return idx
 
+# fmts = [
+#     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
+# ]
 fmts = [
     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 ]
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
+for bw_perc in [0.25, 0.2, 0.15, 0.1]:
 
     for fmt in fmts:
 
@@ -58,14 +61,15 @@ for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
 
         loss_type = 'saliency_error'
 
-        approach = f'backprop_sigmoid_{loss_type}_macroblocks_newthresh_weight_{bw_weight}'
+        approach = f'backprop_macroblocks_bwperc_{bw_perc}_prevsaliency_roi_lowqp36_sigmoid'
         
 
         if force or not os.path.exists(output):
             
             env = os.environ.copy()
             
-            env['DYNACONF_BACKPROP__BW_WEIGHT'] = f'{bw_weight}'
+            env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{bw_perc}'
+            env['SETTINGS_FILE'] = 'settings_macroblock.toml'
 
             run([
                 'python', 'diff_cloudseg.py',

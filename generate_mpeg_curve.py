@@ -22,6 +22,7 @@ from config import settings
 
 
 
+
 gt_config = munchify(settings.ground_truths_config.to_dict())
 
 
@@ -36,6 +37,10 @@ def probe_range(fmt):
 fmts = [
     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 ]
+
+# fmts = [
+#     f'videos/driving/driving_{i}/part%d.mp4' for i in [2]
+# ]
 
 db = pymongo.MongoClient("mongodb://localhost:27017/")[settings.collection_name]
 
@@ -63,7 +68,7 @@ if __name__ == "__main__":
 
     for fmt in fmts:
 
-        for qp in [20, 22, 24, 26, 30, 34, 40]:
+        for qp in [24, 26, 28, 30, 32, 34, 36]:
 
             app = DNN_Factory().get_model(gt_config.app)
 

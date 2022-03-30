@@ -30,10 +30,12 @@ class DNN:
         confidence_check=True,
         require_deepcopy=False,
         class_check=True,
+        size_check=True,
     ):
 
         if require_deepcopy:
             result = deepcopy(result)
+
 
 
         scores = result["instances"].scores
@@ -45,6 +47,13 @@ class DNN:
                 inds = inds | (class_ids == i)
         else:
             inds = scores > -1
+
+        # add size filter
+        if size_check:
+            num_pixels = result['instances'].image_size[0] * result['instances'].image_size[1]
+            # breakpoint()
+            inds = inds & (result['instances'].pred_boxes.area() < num_pixels * getattr(settings, self.name).size_threshold)
+
 
             
         args = getattr(settings, self.name)
@@ -109,8 +118,8 @@ class DNN:
             result = result_dict[fid]
             gt = gt_dict[fid]
 
-            result = self.filter_result(result, False)
-            gt = self.filter_result(gt, True)
+            result = self.filter_result(result, gt=False)
+            gt = self.filter_result(gt, gt=True)
 
             result = result["instances"]
             gt = gt["instances"]
