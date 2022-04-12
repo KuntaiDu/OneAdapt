@@ -39,14 +39,14 @@ bw_percentage = 0.1 # 10% of the video in high quality.
 # reconstruction_loss_weight = 0.5
 train = true # update the configuration or not
 # std_score_mean_weight = 0
-compute_weight = 1
-# sum_score_mean_weight = 1
+# compute_weight = 3
+# sum_score_mean_wight = 1
 app = 'COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
 early_optimize = true
 visualize = false
 difference_threshold = 0.25
 tile_size = 16
-macroblock_shape = [9, 16]
+macroblock_shape = [45, 80]
 # the QP for macroblock encoding
 qps = [24, 26, 28, 30, 34, 36]
 saliency_type = 'sigmoid'

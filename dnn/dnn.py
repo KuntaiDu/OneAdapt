@@ -8,10 +8,15 @@ from detectron2.utils.visualizer import Visualizer
 from PIL import Image
 from pdb import set_trace
 from features.features import *
+from detectron2.utils.visualizer import ColorMode
 
 from config import settings
 
 from munch import *
+
+class MyVisualizer(Visualizer):
+    def _jitter(self, color):
+      return color
 
 class DNN:
     # @abstractmethod
@@ -35,9 +40,8 @@ class DNN:
 
         if require_deepcopy:
             result = deepcopy(result)
-
-
-
+            
+            
         scores = result["instances"].scores
         class_ids = result["instances"].pred_classes
 
@@ -73,7 +77,8 @@ class DNN:
     def visualize(self, image, result):
         # set_trace()
         # result = self.filter_result(result, args, gt=gt)
-        v = Visualizer(image, MetadataCatalog.get("coco_2017_train"), scale=1)
+        v = MyVisualizer(image, MetadataCatalog.get("coco_2017_train"), scale=1.0, instance_mode=ColorMode.SEGMENTATION)
+        v._default_font_size = 30
         out = v.draw_instance_predictions(result["instances"])
         return Image.fromarray(out.get_image(), "RGB")
 
@@ -181,6 +186,7 @@ class DNN:
 
         ret_dict = {
             "f1": torch.tensor(f1s).mean().item(),
+            "acc": torch.tensor(f1s).mean().item(),
             "pr": torch.tensor(prs).mean().item(),
             "re": torch.tensor(res).mean().item(),
             "tp": torch.tensor(tps).sum().item(),

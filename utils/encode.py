@@ -14,11 +14,13 @@ import torch
 import torch.nn.functional as F
 import torchvision.transforms as T
 from PIL import Image
+import random
 from torch.utils.tensorboard import SummaryWriter
 import yaml
 # from torchvision import io
 import io
 from subprocess import run
+from collections import defaultdict
 import time
 
 from pdb import set_trace
@@ -48,8 +50,12 @@ import logging
 import utils.config_utils as conf
 sns.set()
 
+from utils.tqdm_handler import TqdmLoggingHandler
+from utils.reducto import calc_reducto_diff
+
 
 __all__ = ['encode', 'tile_mask']
+logger = logging.getLogger('encode')
 
 
 def tile_mask(mask, tile_size):
@@ -79,10 +85,9 @@ def tile_mask(mask, tile_size):
 def normal_encoding(args, input_video, output_video):
     
     # either specify the frame rate or provide the png of each frame.
-    assert hasattr(args, 'fr') ^ ('png' in input_video)
     assert hasattr(args, 'res')
     assert hasattr(args, 'qp') ^ hasattr(args, 'macroblocks') 
-    logger = logging.getLogger('encode')
+    
     
     
     
@@ -152,7 +157,7 @@ def normal_encoding(args, input_video, output_video):
 
         with open(f"{x264_dir}/qp_matrix_file", "w") as qp_file:
 
-            qp_file.write(qp_file_string * 10)
+            qp_file.write(qp_file_string * settings.segment_length)
                     
                     
         ffmpeg_command = [f"{x264_dir}/ffmpeg-3.4.8/ffmpeg"]
@@ -193,7 +198,7 @@ def normal_encoding(args, input_video, output_video):
             f"{args.qp}"]
     ffmpeg_command += [output_video,]
     
-    logger.info(f'Encoding command is: {ffmpeg_command}')
+    logger.info('Run: ' +  ' '.join(ffmpeg_command))
         
 
     subprocess.check_output(ffmpeg_command, env=ffmpeg_env)
@@ -215,9 +220,9 @@ def encode(args):
     
     
     has_reducto = False
-    for differencer in reducto_differencers:
-        if hasattr(args, 'reducto_' + differencer.feature):
-            has_reducto = True
+    for key in args.keys():
+        if 'reducto' in key:
+            has_reducto=True
             break
     
     if not has_reducto:
@@ -234,7 +239,7 @@ def encode(args):
         logger = logging.getLogger('encode')
         logger.debug('Calculating frame differences')
 
-        logger.info(f'Encode with {args}')
+        # logger.info(f'Encode with {args}')
 
 
         # directly read input video and calculate reducto features.
@@ -267,22 +272,13 @@ def encode(args):
                     remaining_frames = remaining_frames | {fid}
                     
                 else:
+                    
 
-                    feature2values = {}
-                    feature2weight = {}
-                    feature2bias = {}
-                    
-                    for differencer in reducto_differencers:
-                        if hasattr(args, 'reducto_' + differencer.feature + '_bias'):
-                            difference_value = differencer.cal_frame_diff(differencer.get_frame_feature(cur_frame), differencer.get_frame_feature(prev_frame))
-                            feature2values[differencer.feature] = difference_value
-                            feature2weight[differencer.feature] = args['reducto_' + differencer.feature + '_weight']
-                            feature2bias[differencer.feature] = args['reducto_' + differencer.feature + '_bias']
-                            
-                    weight = sum([feature2weight[key] * (feature2values[key] - feature2bias[key])]).sigmoid()
-                    
-                    if weight > 0.5:
-                        logger.debug('Encode frame %d', fid)
+                    weight = calc_reducto_diff(cur_frame, prev_frame, args, is_pil_image=True)[0]
+                    logger.info(f'{fid} weight {weight}')
+
+                    if random.random() < weight:
+                        logger.info('Encode frame %d', fid)
                         executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
                         prev_frame = cur_frame
                         prev_frame_pil = T.ToPILImage()(frame[0])
@@ -295,46 +291,14 @@ def encode(args):
                 
         logger.debug('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % len(remaining_frames))
         
+        if hasattr(args, 'fr'):
+            assert args.fr == 10
+            
         output_video_config = normal_encoding(args, prefix + '/%010d.png', output_video)
         output_video_config['encoded_frames'] = list(remaining_frames)
-
-
-
-        
-        
-        # subprocess.run(
-        #     [
-        #         "ffmpeg",
-        #         "-y",
-        #         "-hide_banner",
-        #         "-loglevel",
-        #         "error",
-        #         # "-stats",
-        #         "-i",
-        #         prefix + '/%010d.png',
-        #         "-s",
-        #         f"{args.res}",
-        #         '-c:v', 
-        #         'libx264', 
-        #         "-qp",
-        #         f"{args.qp}",
-        #         "-preset",
-        #         f"{args.preset}",
-        #         output_video,
-        #     ]
-        # )
-
-        # shutil.rmtree(prefix)
-
-        # output_video_config = read_video_config(output_video)
-        # # video_config['#encoded_frames'] = set(range(video_config['#frames']))
-        # output_video_config['encoded_frames'] = list(remaining_frames)
-        
-
 
 
 
     return output_video, output_video_config
 
 
-    

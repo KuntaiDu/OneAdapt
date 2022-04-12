@@ -51,13 +51,11 @@ def examine(x_args, gt_args, x_app, db, key='stats'):
     gt_args = gt_args.copy()
     x_args = serialize_db_argument(x_args)
     gt_args = serialize_db_argument(gt_args)
+
     
     # assert x_args.app == gt_args.app
 
     logger = logging.getLogger("examine")
-    handler = logging.NullHandler()
-    logger.addHandler(handler)
-
     query = x_args.copy() 
     query.update({'ground_truth': gt_args})
 
@@ -72,6 +70,7 @@ def examine(x_args, gt_args, x_app, db, key='stats'):
     
     x = inference(x_args, db, x_app)
     gt = inference(gt_args, db, x_app)  # will raise an error inside if the model of GT does not align with the model of x.
+    x['gt_inference_result'] = gt['inference_result']
     
     x_dict = pickle.loads(x['inference_result'])
     gt_dict = pickle.loads(gt['inference_result'])
@@ -84,7 +83,7 @@ def examine(x_args, gt_args, x_app, db, key='stats'):
      
     metrics =  x_app.calc_accuracy(x_dict, gt_dict)
     
-    del x.inference_result
+    # del x.inference_result
     del x.timestamp
     del x._id
 

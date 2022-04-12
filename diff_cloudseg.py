@@ -2,6 +2,9 @@
     Compress the video through gradient-based optimization.
 """
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
 import argparse
 import gc
 import logging
@@ -17,7 +20,7 @@ import torch
 import torch.nn.functional as F
 import pickle
 import torchvision.transforms as T
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from torch.utils.tensorboard import SummaryWriter
 from utils.visualize_utils import visualize_heat_by_summarywriter
 from torchvision import io
@@ -39,26 +42,26 @@ from collections import defaultdict
 from tqdm import tqdm
 from inference import inference
 from utils.encode import encode, tile_mask
+from utils.reducto import reducto_process, reducto_process_on_frame, reducto_init
 from examine import examine
 import pymongo
 from munch import *
 from utils.seed import set_seed
+from utils.gradient import grad_macroblocks, grad, grad_reducto_expensive
+from utils.tqdm_handler import TqdmLoggingHandler
+from utils.video_visualizer import VideoVisualizer
+from detectron2.structures.instances import Instances
 
-# from knob.control_knobs import framerate_control, quality_control
 sns.set()
 set_seed()
 
 
-
-# set_trace()
 conf.space = munchify(settings.configuration_space.to_dict())
 state = munchify({})
 
 len_gt_video = 10
-logger = logging.getLogger("diff")
+logger = logging.getLogger("Server")
 
-
-# default_size = (800, 1333)
 conf.serialize_order = list(settings.backprop.tunable_config.keys())
 
 # sanity check
@@ -67,7 +70,7 @@ for key in settings.backprop.frozen_config.keys():
 
 
 
-def read_expensive_from_config(gt_args, state, app, db, command_line_args):
+def read_expensive_from_config(gt_args, state, app, db, command_line_args, train_flag=False):
 
     average_video = None
     average_bw = 0
@@ -75,271 +78,44 @@ def read_expensive_from_config(gt_args, state, app, db, command_line_args):
     
     for args in conf.serialize_most_expensive_state(gt_args.copy(), conf.state2config(state), conf.serialize_order):
         
+        args = args.copy()
         # use ground truth here. For debugging purpose.
-        if hasattr(args, 'qp'):
-            del args.qp
-        args.macroblocks = state['macroblocks']
+        del args.tag
+        for key in list(args.keys()):
+            if 'qp' in key and 'macroblocks' in state:
+                del args.qp
+            if 'reducto' in key:
+                if train_flag and settings.backprop.reducto_expensive_optimize:
+                    # remove frame filtering for training purpose.
+                    del args[key]
+                else:
+                    # this is reducto encoding.
+                    args.tag = 'reducto'
+        if 'tag' not in list(args.keys()):
+            # this is normal encoding.
+            args.tag = 'mpeg'
+
+        if 'macroblocks' in state:
+            args.macroblocks = state['macroblocks']
         # encode
         # args['gamma'] = 1.0
-        video_name, remaining_frames = encode(args)
-        video = read_video_to_tensor(video_name)
-
-        
-        # video = video * prob
-
-        # sum_prob += prob
-
-        # if average_video is None:
-        #     average_video = video
-        # else:
-        #     average_video = average_video + video
-
-        # update statistics of random choice.
         args.command_line_args = vars(command_line_args)
         args.settings = settings.to_dict()
+        video_name, video_config = encode(args)
+        logger.info('Ours bandwidth: %d', video_config['bw'])
+        video = read_video_to_tensor(video_name)
+
+        # update statistics of random choice.
+        inference(args, db, app, video_name, video_config)
         stat = examine(args,gt_args,app,db)
 
         return stat, args, video
-
-
-        # assert ret.keys() == {}.keys() or stat.keys() == ret.keys()
-
-    #     for key in stat:
-    #         if type(stat[key]) in [int, float]:
-    #             ret[key] += stat[key] * prob
-
-    #     Path(video_name).unlink()
-
-
-    # ret.update({'video': average_video})
-    # ret = dict(ret)
-    # return ret
-    
-
-    
-    
-
-
-def optimize(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
- 
-    if key == 'macroblocks':
-        return optimize_macroblocks(args, key, grad, gt_config, gt_video)
-    
-    # assert not hq_video.requires_grad
-
-    
-
-    configs = conf.space[key]
-    args = args.copy()
-
-    # set_trace()
-
-    hq_index = configs.index(args[key])
-    lq_index = hq_index + 1
-    assert lq_index < len(configs)
-    delta = 1.0 / (len(configs) - 1)
-    x = state[key]
-    if x.grad is None:
-        x.grad = torch.zeros_like(x)
-
-    def check():
-
-        # logger.info(f'Index: HQ {hq_index} and LQ {lq_index}')
-
-        logger.info(f'Searching {key} between HQ {configs[hq_index]} and LQ {configs[lq_index]}')
-        
-        args[key] = configs[lq_index]
-        lq_name, lq_config = encode(args)
-        lq_video = read_video_to_tensor(lq_name)
-        # print(lq_config)
-
-        args[key] = configs[hq_index]
-        hq_name, hq_config = encode(args)
-        hq_video = read_video_to_tensor(hq_name)
-        # print(hq_config)
-
-        diff_thresh = settings.backprop.difference_threshold
-
-        hq_diff = (hq_video - gt_video).abs()
-        hq_diff = hq_diff.sum(dim=1, keepdim=True)
-        # logger.info(f'%.5f pixels in HQ are neglected', (hq_diff>diff_thresh).sum()/(hq_diff>-1).sum()) 
-        # hq_diff[hq_diff > diff_thresh] = 0
-        
-        lq_diff = (lq_video - gt_video).abs()
-        lq_diff = lq_diff.sum(dim=1, keepdim=True)
-        # logger.info(f'%.5f pixels in LQ are neglected', (lq_diff>diff_thresh).sum()/(lq_diff>-1).sum()) 
-        # lq_diff[lq_diff > diff_thresh] = 0
-
-        
-
-        if (hq_video - lq_video).abs().mean() > 1e-5: 
-
-            logger.info('Search completed.')
-            
-            left, right = 1 - delta * hq_index, 1 - delta * lq_index
-            # print(f'Left {left}, x {x}, right {right}')
-            if not left >= x > right:
-                breakpoint()
-            assert left >= x > right
-
-
-            # accuracy gradient term
-            # wanna minimize this. So positive gradient.
-            lq_ratio = (left - x) / (left - right)
-            hq_ratio = (x - right) / (left - right)
-
-            hq_losses = {
-                'rec': (grad * hq_diff).abs().mean().item(),
-                'bw': hq_config['bw'] / gt_config['bw'],
-                'com': len(hq_config['encoded_frames']) / settings.segment_length
-            }
-
-            lq_losses = {
-                'rec': (grad * lq_diff).abs().mean().item(),
-                'bw': lq_config['bw'] / gt_config['bw'],
-                'com': len(lq_config['encoded_frames']) / settings.segment_length
-            }
-
-            delta_loss = {i: hq_losses[i] - lq_losses[i] for i in hq_losses.keys()}
-
-            logger.info(f'{key}({configs[hq_index]}): {hq_losses}')
-            logger.info(f'{key}({configs[lq_index]}): {lq_losses}')
-            logger.info(f'Delta: {delta_loss}')
-            
-            logger.info('HQ loss: %.4f', sum(hq_losses.values()))
-            logger.info('LQ loss: %.4f', sum(lq_losses.values()))
-
-            objective = {i: hq_losses[i] * hq_ratio + lq_losses[i] * lq_ratio for i in hq_losses.keys()}
-            objective = settings.backprop.reconstruction_loss_weight * objective['rec'] + settings.backprop.bw_weight * objective['bw'] + settings.backprop.compute_weight* objective['com']
-            
-            
-            logger.info(f'Before backwrad, gradient is {x.grad}')
-
-            objective.backward()
-
-            logger.info('Gradient is %.3f', x.grad)
-            
-
-            return True
-
-        else:
-
-            return False   
-
-
-    while (hq_index > 0 or lq_index < len(configs) - 1):
-
-        if check():
-            return
-        else:
-            # directly return if the gradient is zero. Just to speed up the runtime.
-            return
-        
-        hq_index -= 1
-        hq_index = max(hq_index, 0)
-        lq_index += 1
-        lq_index = min(lq_index, len(configs) - 1)
-    
-    check()
-
-
-
-
-
-def optimize_macroblocks(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
-
-    args = args.copy()
-    
-    tile_size = settings.backprop.tile_size
-    
-    
-    # generate ground truth
-    gt_args = args.copy()
-    del gt_args.macroblocks
-    gt_args.qp = settings.ground_truths_config.qp
-    logger.info(f'Getting ground truth video')
-    gt_name, gt_config = encode(gt_args)
-    gt_video = read_video_to_tensor(gt_name)
-    
-    
-    
-    
-    # generate videos with different qp levels
-    qps = list(settings.backprop.qps)
-    bws, videos = [], []
-    for qp in qps:
-        
-        qp_args = gt_args.copy()
-        qp_args.qp = qp
-        logger.info(f'Encode with QP {qp_args.qp}')
-        qp_name, qp_config = encode(qp_args)
-        qp_video = read_video_to_tensor(qp_name)
-        
-        bws.append(qp_config['bw'])
-        videos.append(qp_video)
-    
-    # pixel error
-    emaps = [abs(video - gt_video) for video in videos]
-    
-    # saliency * pixel error
-    saliency_sums = [F.conv2d(
-        abs(grad * emap).sum(dim=1, keepdim=True).sum(dim=0, keepdim=True), 
-        torch.ones([1, 1, tile_size, tile_size]),
-        stride=tile_size
-    ) for emap in emaps]
-    
-    perc = settings.backprop.bw_percentage
-    
-    
-    delta = (saliency_sums[1] - saliency_sums[0]).detach()
-    delta = delta.flatten().sort()[0]
-    delta = delta[-int(len(delta) * perc)]
-    
-    relative_bw = bws[1] / bws[0]
-    bw_weight = delta / (1-relative_bw)
-    objectives = [saliency_sums[i] + bw_weight * torch.ones_like(saliency_sums[i]) * bws[i] / bws[0] for i in range(len(qps))]
-    
-    # start from the lowest quality.
-    qpmap = torch.ones_like(objectives[-1]).int() * qps[-1]
-    current_objective = objectives[-1]
-    for i in range(0, len(qps)):
-        qpmap = torch.where(current_objective > objectives[i], torch.ones_like(qpmap) * qps[i], qpmap)
-        current_objective = torch.where(current_objective > objectives[i], objectives[i], current_objective)
-        
-    # finalize optimization, prep 
-    state[key] = qpmap[0,0]
-    
-    
-    # directly calculate the closed-form solution.
-    
-    
-    # # optimize the parameters.
-    # mask = args.macroblocks
-    # mask = tile_mask(mask, settings.backprop.tile_size)
-    # mask = mask[None, None, :, :]
-    # masked_video = mask * hq_video + (1-mask) * lq_video
-    # masked_bw = (mask.mean() * hq_config['bw'] + (1-mask.mean()) * lq_config['bw']) / gt_config['bw']
-    
-    # diff_video = (masked_video - hq_video).abs()
-    
-    # loss = settings.backprop.reconstruction_loss_weight * (diff_video * grad).abs().mean() +\
-    #     settings.backprop.bw_weight * masked_bw
-        
-    # loss.backward()
-    
-    return True
-
-
-
-
 
 
 
 
 def main(command_line_args):
     
-
-
     # a bunch of initialization.
     
     torch.set_default_tensor_type(torch.FloatTensor)
@@ -348,26 +124,22 @@ def main(command_line_args):
 
     app = DNN_Factory().get_model(settings.backprop.app)
 
-    writer = SummaryWriter(f"runs/{command_line_args.input}/{command_line_args.approach}")
-
     conf_thresh = settings[app.name].confidence_threshold
-    # conf_lb = settings[app.name].confidence_lb
-    # conf_ub = settings[app.name].confidence_ub
 
     logger.info("Application: %s", app.name)
     logger.info("Input: %s", command_line_args.input)
     logger.info("Approach: %s", command_line_args.approach)
-    progress_bar = enlighten.get_manager().counter(
-        total=command_line_args.end - command_line_args.start,
-        desc=f"{command_line_args.input}",
-        unit="10frames",
-    )
 
-        
-    # initialize configurations pace.
+
+    # visualizer
+    results_vis = VideoVisualizer(f'debug/{command_line_args.approach}_results.mp4')
+    errors_vis = VideoVisualizer(f'debug/{command_line_args.approach}_errors.mp4')
+
+    # initialize optimizer
     placeholder = torch.tensor([1.])
     placeholder.requires_grad = True
     placeholder.grad = torch.zeros_like(placeholder)
+    # avoid no parameter to optimize error
     parameters = [{"params": placeholder, "lr": 0.}]
     for key in conf.serialize_order:
         if key == 'cloudseg':
@@ -395,16 +167,13 @@ def main(command_line_args):
         })
     
     # build optimizer
-    optimizer = torch.optim.SGD(parameters)
+    optimizer = torch.optim.Adam(parameters, betas=(0.5, 0.5))
 
 
 
-    for sec in range(command_line_args.start, command_line_args.end):
+    for sec in tqdm(range(command_line_args.start, command_line_args.end), unit='sec', desc='progress'):
 
-        progress_bar.update()
-
-        logger.info('\nAt sec %d', sec)
-
+        
         
         gt_args = munchify(settings.ground_truths_config.to_dict()) 
         gt_args.update({
@@ -412,63 +181,76 @@ def main(command_line_args):
             'second': sec,
         })
 
-
-
-        # construct average video and average bw
-        stat, args, video = read_expensive_from_config(gt_args, state, app, db, command_line_args)
+        train_flag = (settings.backprop.train and (sec-command_line_args.start) % command_line_args.frequency == 0)
+        stat, args, server_video = read_expensive_from_config(gt_args, state, app, db, command_line_args, train_flag)
+        logger.info('Actual compute: %d' % len(stat['encoded_frames']))
         gt_video_name, gt_video_config = encode(gt_args)
         gt_video = read_video_to_tensor(gt_video_name)
+        logger.info('Ground truth bandwidth: %d', gt_video_config['bw'])
+        # args.command_line_args = vars(command_line_args)
+        # args.settings = settings.as_dict()
+
+        # reducto init
+        if train_flag:
+            reducto_init(gt_video,state,optimizer)
+            logger.info('Reducto parameter initialized.')
         
         
         if 'gamma' in state:
-            video = (video ** state['gamma']).clamp(0, 1)
+            server_video = (server_video ** state['gamma']).clamp(0, 1)         
+            
 
-        if any('reducto' in state.keys()):
-            video = reducto_process(video)
-
-
-        # update parameters
-        args.command_line_args = vars(command_line_args)
-        args.settings = settings.as_dict()
+        
         
         # results = pickle.loads(inference(args, db, app)['inference_result'])
-        gt_results = pickle.loads(inference(gt_args, db, app)['inference_result'])
-        # for idx, frame in enumerate(tqdm(video)):
-        #     with torch.no_grad():
-        #         if settings.backprop.tunable_config.cloudseg:
-        #             frame = conf.SR_dnn(frame.unsqueeze(0).to('cuda:1')).cpu()
-        #         result = app.inference(frame, detach=True, grad=False)
-        #         score = torch.sum(result["instances"].scores)
-        #         scores[idx] = score
-        # scores = {}
-        # for idx in results:
-        #     scores[key] = torch.sum(results[idx]['instances'].scores)
+        gt_results = pickle.loads(stat['gt_inference_result'])
+        my_results = pickle.loads(stat['inference_result'])
 
-        # interpolated_fr = conf.state2config(state)['fr']
-        # interpolated_fr = interpolated_fr[0][0] * interpolated_fr[0][1] + interpolated_fr[1][0] * interpolated_fr[1][1]
+        # visualize
+        for idx, frame in enumerate(tqdm(server_video, desc='visualize', unit='frame')):
 
-        # set_trace()
-        
-        # interpolated_fr = ret['#remaining_frames']
-        # average_std_score_mean = torch.tensor([scores[i] for i in scores.keys()]).var(unbiased=False).detach()
-        # average_sum_score = torch.tensor([scores[i] for i in scores.keys()]).mean()
-        # sum_score = torch.tensor([scores[i] for i in scores.keys()]).detach().cpu()
+            image = T.ToPILImage()(frame.clamp(0, 1))
+            text = ("Comp: %d\n"
+                    "Acc : %.3f\n"
+                    "Bw  : %.3f") % (len(stat['encoded_frames']), stat['acc'], stat['norm_bw'])
+
+            draw = ImageDraw.Draw(image)
+            font = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 24)
+            draw.multiline_text((10, 10), text, fill=(255, 0, 0), font=font)
+
+            my_result = app.filter_result(my_results[idx])
+            gt_result = app.filter_result(gt_results[idx], gt=True)
+
+            gt_ind, my_ind, gt_filtered, my_filtered = app.get_undetected_ground_truth_index(my_result, gt_result)
+
+            image_error = app.visualize(image, {"instances": Instances.cat([gt_filtered[gt_ind], my_filtered[my_ind]])})
+            image_inference = app.visualize(image, my_result)
+            errors_vis.add_frame(image_error)
+            results_vis.add_frame(image_inference)
+
+        logger.info('Compute: %d, Acc: %.3f, BW: %.3f', len(stat['encoded_frames']), stat['acc'], stat['norm_bw'])
+                       
 
 
+        if train_flag:
 
-        #  sec < 9:
-        if settings.backprop.train and sec % command_line_args.frequency == 0:
-
-            # take the gradient from the video
-            # video.requires_grad = True
+            
 
             saliencies = {}
             raw_saliencies_tensor = []
             saliencies_tensor = []
+            inference_results = {}
+            camera_video = server_video
+            compute = None
+            
+            if any('reducto' in key for key in state.keys()) and not settings.backprop.reducto_expensive_optimize:
+                # get the differentiable reducto processed video on the camera
+                camera_video, metrics = reducto_process(gt_video, state)
+                logger.info('Estimated compute: %.3f, Entropy: %.3f', metrics['compute'].item(), metrics['entropy'].item())
 
             # calculate saliency on each frame.
             if command_line_args.loss_type == 'saliency_error':
-                for idx, frame in enumerate(tqdm(video)):
+                for idx, frame in enumerate(tqdm(server_video, unit='frame', desc='saliency')):
                     gt_frame = gt_video[idx]
                     if settings.backprop.tunable_config.get('cloudseg', None):
                         with torch.no_grad():
@@ -489,7 +271,7 @@ def main(command_line_args):
                     # logger.info('%d objects need for optimization.' % score_inds.sum())
                     # score = score[score_inds]
                     # sum_score = torch.sum(score)
-                    
+                    inference_results[idx] = result                    
                     sum_score.backward()
 
                     saliency = frame_detached.grad
@@ -502,12 +284,13 @@ def main(command_line_args):
                     saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
                     saliencies[idx] = saliency
                     saliencies_tensor.append(saliency)
+                    
 
 
-            video.requires_grad_()
+            # video.requires_grad_()
             for iteration in range(command_line_args.num_iterations):
 
-                for idx, frame in enumerate(tqdm(video)):
+                for idx, frame in enumerate(tqdm(server_video, unit='frame', desc='optimize')):
 
                     fid = sec * 10 + idx
 
@@ -519,106 +302,18 @@ def main(command_line_args):
 
                     reconstruction_loss = None
                     result = None
-                    gt_frame = gt_video[idx].unsqueeze(0)
                     
 
 
-                    if command_line_args.loss_type == 'absolute_error':
 
-                        result = app.inference(frame.detach(), detach=True, grad=False)
-                        reconstruction_loss =  (gt_frame - frame).abs().mean()
-                        reconstruction_loss.backward()
-
-                    # elif command_line_args.loss_type == 'saliency_error_update':
-
-                    #     # # for visualization purpose.
-                    #     # result = app.inference(frame.detach(), detach=False, grad=False)
-
-                    #     # calculate saliency again
-                    #     frame_detached = frame.detach()
-                    #     frame_detached.requires_grad_()
-                    #     result = app.inference(frame_detached, detach=False, grad=True)
-                    #     # filter out unrelated classes
-                    #     result = app.filter_result(result, confidence_check=False)
-                    #     score = result["instances"].scores
-                    #     score_inds = (conf_lb < score < conf_ub)
-                    #     score = score[score_inds]
-                    #     sum_score = torch.sum(score)
+                    if command_line_args.loss_type == 'saliency_error':
                         
-                    #     sum_score.backward()
 
-                    #     saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
-                    #     kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
-                    #     saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
-
-                    #     # reconstruction_loss = (saliencies[idx] * (gt_frame - frame).abs()).mean()
-                    #     reconstruction_loss = (saliency * (gt_frame - frame).abs()).mean()
-                    #     reconstruction_loss.backward()
-
-
-
-                    elif command_line_args.loss_type == 'cheat_saliency_error':
-
-                        # # for visualization purpose.
-                        # result = app.inference(frame.detach(), detach=False, grad=False)
-
-                        # calculate saliency again
-                        frame_detached = frame.detach()
-                        frame_detached.requires_grad_()
-                        result = app.inference(frame_detached, detach=False, grad=True)
-                        # filter out unrelated classes
-                        result = app.filter_result(result, confidence_check=False)
-
-                        gt_result = gt_results[idx]
-                        gt_ind, res_ind, gt_result, result = app.get_error_confidence_distribution(result, gt_result)
-
-                        in_gt = result[~res_ind]
-                        not_in_gt = result[res_ind]
-
-                        FN = in_gt[in_gt.scores < conf_thresh]
-                        FP = not_in_gt[not_in_gt.scores > conf_thresh]
-
-                        db['FN_conf'].insert_one({
-                            'confidences': FN.scores.tolist(),
-                            'command_line_args': vars(command_line_args),
-                            'settings': settings.as_dict(),
-                            'second': sec,
-                            })
-                        db['FP_conf'].insert_one({
-                            'confidences': FP.scores.tolist(),
-                            'command_line_args': vars(command_line_args),
-                            'settings': settings.as_dict(),
-                            'second': sec
-                            })
-                        db['Hidden_FN'].insert_one({
-                            'count': gt_ind.sum().item(),
-                            'command_line_args': vars(command_line_args),
-                            'settings': settings.as_dict(),
-                            'second': sec
-                            })
-
-                        logger.info('FP: %d, FN: %d, Hidden_FN: %d', len(FP), len(FN), gt_ind.sum())
-
-                        (- FP.scores.sum() - (1 - FN.scores).sum()).backward()
-
-                        saliency = frame_detached.grad.abs().sum(dim=1, keepdim=True)
-                        kernel = torch.ones([1, 1, command_line_args.average_window_size, command_line_args.average_window_size])
-                        saliency = F.conv2d(saliency, kernel, stride=1, padding=(command_line_args.average_window_size - 1) // 2)
-
-                        # reconstruction_loss = (saliencies[idx] * (gt_frame - frame).abs()).mean()
-                        reconstruction_loss = (saliency * (gt_frame - frame).abs()).mean()
-                        reconstruction_loss.backward()
-
-                        result = {'instances': result}
-
-
-
-                    elif command_line_args.loss_type == 'saliency_error':
-
-                        result = app.inference(frame.detach(), detach=True, grad=False)
-                        reconstruction_loss = (saliencies[idx] * (gt_frame - frame).abs()).mean()
-                        saliency = saliencies[idx]
-                        reconstruction_loss.backward()
+                        # result = app.inference(frame.detach(), detach=True, grad=False)
+                        reconstruction_loss = (saliencies[idx] * (gt_video[idx].unsqueeze(0) - camera_video[idx].unsqueeze(0)).abs()).mean()
+                        if frame.grad_fn is not None:
+                            # frame is generated by differentiable knobs. Backward.
+                            reconstruction_loss.backward(retain_graph=True)
 
                     elif command_line_args.loss_type == 'feature_error':
 
@@ -646,61 +341,77 @@ def main(command_line_args):
 
 
 
-                    writer.add_scalar('Reconstruction/%d' % idx, reconstruction_loss.item(), iteration)
-
-                    # if settings.backprop.early_optimize:
-                    #     # logger.info('Early optimize')
-                    #     optimizer.step()
-                    #     optimizer.zero_grad()
+                    # writer.add_scalar('Reconstruction/%d' % idx, reconstruction_loss.item(), iteration)
 
 
-                    if fid % 10 == 0 and settings.backprop.visualize and iteration == 0:
-                        with torch.no_grad():
-                            for key in result['instances'].get_fields():
-                                if key == 'pred_boxes':
-                                    result['instances'].get(key).tensor = result['instances'].get(key).tensor.detach().cpu()
-                                else:
-                                    result['instances'].set(key, result['instances'].get(key).detach().cpu())
-                            gt_ind, res_ind, gt_filtered, res_filtered = app.get_undetected_ground_truth_index(result, gt_results[idx])
+                    # if fid % 10 == 0 and settings.backprop.visualize and iteration == 0:
+                    #     with torch.no_grad():
+                    #         for key in result['instances'].get_fields():
+                    #             if key == 'pred_boxes':
+                    #                 result['instances'].get(key).tensor = result['instances'].get(key).tensor.detach().cpu()
+                    #             else:
+                    #                 result['instances'].set(key, result['instances'].get(key).detach().cpu())
+                    #         gt_ind, res_ind, gt_filtered, res_filtered = app.get_undetected_ground_truth_index(result, gt_results[idx])
 
-                            logger.info('Generating visualization images...')
-                            image = T.ToPILImage()(frame.detach()[0].clamp(0, 1))
-                            image_FN = app.visualize(image, {'instances': gt_filtered[gt_ind]})
-                            image_FP = app.visualize(image, {'instances': res_filtered[res_ind]})
-                            result = app.filter_result(result)
-                            image_all = app.visualize(image, result)
+                    #         logger.info('Generating visualization images...')
+                    #         image = T.ToPILImage()(frame.detach()[0].clamp(0, 1))
+                    #         image_FN = app.visualize(image, {'instances': gt_filtered[gt_ind]})
+                    #         image_FP = app.visualize(image, {'instances': res_filtered[res_ind]})
+                    #         result = app.filter_result(result)
+                    #         image_all = app.visualize(image, result)
 
-                            logger.info('Logging visualizations')
-                            visualize_heat_by_summarywriter(image_FN, saliency[0][0], 'FN', writer, fid, tile=False)
-                            visualize_heat_by_summarywriter(image_FP, saliency[0][0], 'FP', writer, fid, tile=False)
-                            visualize_heat_by_summarywriter(image_all, tile_mask( (state['macroblocks'] > 0.5).float(), settings.backprop.tile_size), 'saliency', writer, fid, tile=False)
+                    #         logger.info('Logging visualizations')
+                    #         visualize_heat_by_summarywriter(image_FN, saliency[0][0], 'FN', writer, fid, tile=False)
+                    #         visualize_heat_by_summarywriter(image_FP, saliency[0][0], 'FP', writer, fid, tile=False)
+                    #         visualize_heat_by_summarywriter(image_all, tile_mask( (state['macroblocks'] > 0.5).float(), settings.backprop.tile_size), 'saliency', writer, fid, tile=False)
                             
 
                         # if iteration == 0:
                         #     writer.add_image('GT/%d' % idx, gt_video[idx], idx)
+                        
+                # backward cost parameters
+                if 'metrics' in locals():
+                    (settings.backprop.compute_weight * (metrics['compute'] + settings.backprop.entropy_weight * metrics['entropy'])).backward()
+
+                        
+                
 
 
                 # saliencies_tensor = torch.cat(saliencies_tensor)
+                enable_expensive_reducto_optimize = False
 
                 for key in settings.backprop.tunable_config.keys():
                     if key == 'cloudseg':
                         # already optimized when backwarding.
                         continue
                     elif key == 'macroblocks':
-                        optimize_macroblocks(args, key, torch.cat(raw_saliencies_tensor), gt_video_config, gt_video)
+                        grad_macroblocks(args, key, torch.cat(raw_saliencies_tensor), gt_video_config, gt_video)
                         continue
-                    optimize(args, key, torch.cat(saliencies_tensor), gt_video_config, gt_video)
+                    elif 'reducto' in key:
+                        
+                        # already optimized when backwarding.
+                        if settings.backprop.reducto_expensive_optimize:
+                            enable_expensive_reducto_optimize=True
+                            
+                        continue
+                    grad(args, key, torch.cat(saliencies_tensor), gt_video_config, gt_video)
+                    
+                if enable_expensive_reducto_optimize:
+                    grad_reducto_expensive(state, key, gt_video, inference_results, app, optimizer)
 
 
                 # if not settings.backprop.early_optimize:
-                optimizer.step()
-                optimizer.zero_grad()
+                if not settings.backprop.reducto_expensive_optimize:
+                    optimizer.step()
+                    optimizer.zero_grad()
 
-                # truncate                
+                # round to [0,1]         
                 for key in conf.serialize_order:
                     if key == 'cloudseg':
                         continue
                     if key == 'macroblocks':
+                        continue
+                    if 'reducto' in key:
                         continue
                     state[key].requires_grad = False
                     if state[key] > 1.:
@@ -710,120 +421,39 @@ def main(command_line_args):
                     state[key].requires_grad = True
 
                 # print out current state
-                state_str = ""
-                for key in conf.serialize_order:
-                    if key == 'cloudseg':
-                        param = list(conf.SR_dnn.net.parameters())[0]
-                        logger.info('CloudSeg: gradient of layer 0 mean: %.3f, std: %.3f', param.grad.mean(), param.grad.std())
-                        continue
-                    if key == 'macroblocks':
-                        param = state[key]
-                        logger.info('Macroblocks: mean: %.3f', param.float().mean())
-                        continue
-                    state_str += '%s : %.3f, grad: %.7f\n' % (key, state[key], state[key].grad)
+                if not settings.backprop.reducto_expensive_optimize:
+                    state_str = ""
+                    for key in conf.serialize_order:
+                        if key == 'cloudseg':
+                            param = list(conf.SR_dnn.net.parameters())[0]
+                            logger.info('CloudSeg: gradient of layer 0 mean: %.3f, std: %.3f', param.grad.mean(), param.grad.std())
+                            continue
+                        if key == 'macroblocks':
+                            param = state[key]
+                            logger.info('Macroblocks: mean: %.3f', param.float().mean())
+                            continue
+                        state_str += '%s : %.3f, grad: %.7f\n' % (key, state[key], state[key].grad)
 
-                logger.info(f'Current state: {state}')
-
-
-                
-
-        # if args.train:
-        #     (-(1/len_gt_video) * last_score).backward(retain_graph=True)
-        # average_sum_score = average_sum_score +  (-(1/len_gt_video) * last_score).item()
-            
-
-
-
-        # objective = (settings.backprop.sum_score_mean_weight * average_sum_score + settings.backprop.std_score_mean_weight * average_std_score_mean)
-        # true_obj = (settings.backprop.sum_score_mean_weight * true_average_score + settings.backprop.std_score_mean_weight * true_average_std_score_mean  - settings.backprop.compute_weight * interpolated_fr.detach().item())
-        
-        
-        
-        # # logger.info('QP: %.3f, Res: %.3f, Fr: %.3f', state['qp'], state['res'], state['fr'])
-        # # logger.info('qpgrad: %.3f, frgrad: %.3f, resgrad: %.3f', state['qp'].grad, state['fr'].grad, state['res'].grad)
-        
-        # # logger.info('Score: %.3f, std: %.3f, bw : %.3f, Obj: %.3f', average_sum_score, average_std_score_mean, ret['bw'], objective.item())
-        # logger.info('Reconstruction loss: %.3f', reconstruction_loss.item())
-
-        # performance = examine(args, gt_args, app, db)
-        # logger.info('F1: %.3f', performance['f1'])
-
-        # logger.info('True : %.3f, Tru: %.3f, Tru: %.3f, Tru: %.3f', true_average_score, true_average_std_score_mean, true_average_bw, true_obj)
-
-        # truncate            
-        # logger.info(f'Current config: {conf.state2config(state)}')
-
-        
-
-        # choose = conf.random_serialize(video_name, conf.state2config(state))
-
-    # mean = torch.tensor(means).mean().item()
-
-    # logger.info('Overall mean quality: %.3f', mean)
-
-    # with open('config.yaml', 'a') as f:
-    #     f.write(yaml.dump([{
-    #         '#frames': fid,
-    #         'bw': mean * Path(args.hq).stat().st_size + (1-mean) * Path(args.lq).stat().st_size,
-    #         'video_name': args.output
-    #     }]))
-
-    # with open('diff.yaml', 'a') as f:
-    #     f.write(yaml.dump({
-    #         'acc': accs,
-    #         'compute': computes,
-    #         'size': sizes
-    #     }))
-
-    # print(torch.tensor(accs).mean() + torch.tensor(computes).mean() + torch.tensor(sizes).mean())
+                    logger.debug(f'Current state: {state}')
         
 
 
 if __name__ == "__main__":
 
     # set the format of the logger
-    coloredlogs.install(
+    formatter = coloredlogs.ColoredFormatter(
         fmt="%(asctime)s [%(levelname)s] %(name)s:%(funcName)s[%(lineno)s] -- %(message)s",
         datefmt="%H:%M:%S",
-        level="INFO",
+    )
+
+    handler = TqdmLoggingHandler()
+    handler.setFormatter(formatter)
+    logging.basicConfig(
+        handlers=[handler],
+        level='INFO'
     )
 
     parser = argparse.ArgumentParser()
-
-    # parser.add_argument(
-    #     "--freq",
-    #     help="The video file names. The largest video file will be the ground truth.",
-    #     default=1,
-    #     type=int
-    # )
-
-    # parser.add_argument(
-    #     '--lr',
-    #     help='The learning rate',
-    #     type=float,
-    #     default=0.003
-    # )
-
-    # parser.add_argument(
-    #     '--qp',
-    #     help='The quantization parameter',
-    #     type=float,
-    #     default=1.
-    # )
-
-    # parser.add_argument(
-    #     '--fr',
-    #     help='The frame rate',
-    #     type=float,
-    #     default=1.
-    # )
-
-    # parser.add_argument(
-    #     '--res',
-    #     help='The resolution',
-    #     type=float,
-    #     default=1.
-    # )
 
     parser.add_argument(
         '--loss_type',
@@ -887,12 +517,6 @@ if __name__ == "__main__":
         type=str,
         required=True
     )
-    # parser.add_argument(
-    #     '--gamma',
-    #     type=float,
-    #     help='Adjust the luminance.',
-    #     default=1.5,
-    # )
 
     args = parser.parse_args()
 

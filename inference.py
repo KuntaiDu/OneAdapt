@@ -55,9 +55,10 @@ __all__ = ['inference']
 
 
 
-def inference(args, db, app=None):
+def inference(args, db, app=None, video_name=None, video_config=None):
 
     logger = logging.getLogger('inference')
+
     config = settings.inference_config
 
 
@@ -69,12 +70,6 @@ def inference(args, db, app=None):
     for key in args:
         args_string += f'{key}_{args[key]}_'
     
-
-    logger.debug('Try inference on %s', args_string)
-
-    logger = logging.getLogger("inference")
-    handler = logging.NullHandler()
-    logger.addHandler(handler)
 
     torch.set_default_tensor_type(torch.FloatTensor)
 
@@ -103,7 +98,10 @@ def inference(args, db, app=None):
         
 
     assert app is not None and app.name == args.app.replace('.', '_').replace('/', '_'), f'{args}'
-    video_name, video_config = encode(args)
+    if video_name is not None:
+        assert video_config is not None
+    else:
+        video_name, video_config = encode(args)
 
 
 
@@ -119,7 +117,7 @@ def inference(args, db, app=None):
     with torch.no_grad():
 
 
-        for fid, frame in enumerate(tqdm(read_video_to_tensor(video_name))):
+        for fid, frame in enumerate(tqdm(read_video_to_tensor(video_name), unit='frame', desc='inference')):
 
             frame = frame.unsqueeze(0)
                 
