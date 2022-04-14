@@ -5,15 +5,21 @@ from collections import defaultdict
 import numpy as np
 import torchvision.transforms as T
 import logging
+from collections import defaultdict
+import utils.video_visualizer as vis
 
 logger = logging.getLogger("reducto")
 
 
-reducto_feature2meanstd = {}
+reducto_feature2meanstd = defaultdict(lambda: {'mean': 0.0, 'std': 1.0})
+
+def torchify(x):
+    if isinstance(x, float):
+        x = torch.tensor(x)
+    return x
 
 
-
-def calc_reducto_diff(cur_frame, prev_frame, args, is_pil_image):
+def calc_reducto_diff(cur_frame, prev_frame, args, is_pil_image, binarize):
 
     if not is_pil_image:
         cur_frame = np.array(T.ToPILImage()(cur_frame.detach()))[:, :, ::-1].copy()
@@ -26,22 +32,23 @@ def calc_reducto_diff(cur_frame, prev_frame, args, is_pil_image):
             if hasattr(args, 'reducto_' + differencer.feature + '_bias'):
                 if differencer.feature not in feature2values:
                     difference_value = differencer.cal_frame_diff(differencer.get_frame_feature(cur_frame), differencer.get_frame_feature(prev_frame))
-                    feature2values[differencer.feature] = (difference_value - reducto_feature2meanstd[differencer.feature]['mean']) / reducto_feature2meanstd[differencer.feature]['std']
-                    
-    def torchify(x):
-        if isinstance(x, float):
-            x = torch.tensor(x)
-        return x
-    
+                    feature2values[differencer.feature] = difference_value 
     # encode this frame only when all differences are greater than the thresholds
     weight = min([
-        torchify(feature2values[key] - args['reducto_' + key + '_bias']).sigmoid()
+        torchify( ((feature2values[key] - reducto_feature2meanstd[key]['mean']) / reducto_feature2meanstd[key]['std']) - args[f'reducto_{key}_bias']).sigmoid()
         for key in feature2values.keys()])
+    
+    if binarize:
+        weight = (weight > 0.5).float()
 
     return weight, feature2values
 
 
-def reducto_process_on_frame(video, args, cache, cur_id, prev_id, prob, prob_matrix, compute, metrics):
+def reducto_process_on_frame(video, args, cache, cur_id, prev_id, prob, prob_matrix, compute, metrics, binarize=True):
+    
+    if prob == 0:
+        # a not possible branch. return.
+        return
 
     if cur_id >= len(video):
 
@@ -52,7 +59,7 @@ def reducto_process_on_frame(video, args, cache, cur_id, prev_id, prob, prob_mat
     else:
 
         if (cur_id, prev_id) not in cache:
-            cache[(cur_id, prev_id)] = calc_reducto_diff(video[cur_id], video[prev_id], args, is_pil_image=False)
+            cache[(cur_id, prev_id)] = calc_reducto_diff(video[cur_id], video[prev_id], args, is_pil_image=False, binarize=binarize)
         new_prob = cache[(cur_id, prev_id)][0]
         # if cur_id == prev_id + 1:
         #     logger.info(f'{new_prob}')
@@ -73,7 +80,8 @@ def reducto_process_on_frame(video, args, cache, cur_id, prev_id, prob, prob_mat
 
 
 
-def reducto_process(video, state):
+def reducto_process(video, state, binarize=True):
+    
 
     cache = {}
     metrics = {'compute': torch.tensor([0.]), 'entropy': torch.tensor([0.])}
@@ -82,38 +90,46 @@ def reducto_process(video, state):
         for j in range(len(video)):
             prob_matrix[i, j] = torch.tensor([0.0])    
     prob_matrix[0, 0] = 1.0
-    compute = reducto_process_on_frame(video, state, cache, 1, 0, torch.tensor([1.0]), prob_matrix, 1, metrics)
+    compute = reducto_process_on_frame(video, state, cache, 1, 0, torch.tensor([1.0]), prob_matrix, 1, metrics, binarize=binarize)
 
     new_video = [torch.zeros_like(frame.unsqueeze(0)) for frame in video]
 
     for cur_id in range(len(new_video)):
         for prev_id in range(len(video)):
-            # need to make sure this edit is not in-place, to preserve the gradient.
-            new_video[cur_id] = new_video[cur_id] + prob_matrix[cur_id, prev_id] * video[prev_id].unsqueeze(0)
+            if prob_matrix[cur_id, prev_id] > 0:
+                # need to make sure this edit is not in-place, to preserve the gradient.
+                new_video[cur_id] = new_video[cur_id] + prob_matrix[cur_id, prev_id] * video[prev_id].unsqueeze(0)
+    metrics['prob_matrix'] = prob_matrix
 
     return torch.cat(new_video), metrics
 
 
 
-def reducto_update_mean_std(video, state):
+def reducto_update_mean_std(video, state, gt_args, db):
+    """ Get the mean and the standard deviation of all possible difference values on one video segment.
 
+    Args:
+        video (tensor): video encoded by gt_args
+        state (dict): The state dict.
+        gt_args (dict): the args for ground truth video
+        db (mongodb): the database
+    """    
+    
     cache = {}
-    metrics = {'compute': torch.tensor([0.]), 'entropy': torch.tensor([0.])}
-    prob_matrix = defaultdict(lambda: 0.0)
-    for i in range(len(video)):
-        for j in range(len(video)):
-            prob_matrix[i, j] = torch.tensor([0.0])    
-    prob_matrix[0, 0] = 1.0
 
-    with torch.no_grad():
-        
-        reducto_process_on_frame(video, state, cache, 1, 0, torch.tensor([1.0]), prob_matrix, 1, metrics)
+    for i in range(len(video)):
+        for j in range(i+1, len(video)):
+            cache[i, j] = calc_reducto_diff(video[i], video[j], state, is_pil_image=False, binarize=True)
+
 
     feature2values = defaultdict(list)
     for frame_pairs in cache:
         feature2value = cache[frame_pairs][1]
         for feature in feature2value:
             feature2values[feature].append(feature2value[feature])
+            
+            
+    
 
     for feature in feature2values:
 
@@ -121,4 +137,9 @@ def reducto_update_mean_std(video, state):
         mean, std = values_tensor.mean(), values_tensor.std()
         
         reducto_feature2meanstd[feature] = {'mean': mean, 'std': std}
+        
+        logger.info('%s: mean %.3f, std: %.3f, max: %.3f, min: %.3f')
+        
+        vis.text += "%s: mean %.3f, std %.3f\n" % (feature, mean, std)
+        
 

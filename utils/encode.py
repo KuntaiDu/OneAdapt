@@ -2,57 +2,45 @@
 
 import argparse
 import gc
-import logging
-import time
-from pathlib import Path
-
+import hashlib
+# from torchvision import io
 import io
+import logging
+import os
+import pickle
+import random
+import shutil
+import subprocess
+import time
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
+from pdb import set_trace
+from subprocess import run
+
 import coloredlogs
 import matplotlib.pyplot as plt
+import numpy as np
+import pymongo
 import seaborn as sns
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as T
-from PIL import Image
-import random
-from torch.utils.tensorboard import SummaryWriter
 import yaml
-# from torchvision import io
-import io
-from subprocess import run
-from collections import defaultdict
-import time
-
-from pdb import set_trace
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-from dnn.dnn_factory import DNN_Factory
-
-from utils.video_reader import read_video, read_video_config, read_video_to_tensor
-# from utils.results import write_results
-
-from knob.control_knobs import framerate_control, quality_control
-from tqdm import tqdm
-from munch import *
-from datetime import datetime
-import pymongo
-import subprocess
-import pickle
-import numpy as np
-
 from config import settings
-from reducto.differencer import reducto_differencers
-import shutil
-import torch
-import os
+from dnn.dnn_factory import DNN_Factory
+from munch import *
+from PIL import Image
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
-import logging
 import utils.config_utils as conf
-sns.set()
-
-from utils.tqdm_handler import TqdmLoggingHandler
+from reducto.differencer import reducto_differencers
 from utils.reducto import calc_reducto_diff
-
+from utils.tqdm_handler import TqdmLoggingHandler
+from utils.video_reader import (read_video, read_video_config,
+                                read_video_to_tensor)
 
 __all__ = ['encode', 'tile_mask']
 logger = logging.getLogger('encode')
@@ -227,7 +215,7 @@ def encode(args):
     
     if not has_reducto:
         
-        return output_video, normal_encoding(args, input_video, output_video)
+        output_video_config = normal_encoding(args, input_video, output_video)
 
 
         
@@ -274,10 +262,9 @@ def encode(args):
                 else:
                     
 
-                    weight = calc_reducto_diff(cur_frame, prev_frame, args, is_pil_image=True)[0]
-                    logger.info(f'{fid} weight {weight}')
+                    weight = calc_reducto_diff(cur_frame, prev_frame, args, is_pil_image=True, binarize=True)[0]
 
-                    if random.random() < weight:
+                    if weight == 1:
                         logger.info('Encode frame %d', fid)
                         executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
                         prev_frame = cur_frame
@@ -296,7 +283,13 @@ def encode(args):
             
         output_video_config = normal_encoding(args, prefix + '/%010d.png', output_video)
         output_video_config['encoded_frames'] = list(remaining_frames)
-
+        
+    
+    # calculate SHA256 hash
+    with open(output_video, 'rb') as f:
+        bytes = f.read()
+        output_video_config['sha256'] = hashlib.sha256(bytes).hexdigest()
+    output_video_config['compute'] = len(output_video_config['encoded_frames'])
 
 
     return output_video, output_video_config

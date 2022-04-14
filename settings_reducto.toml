@@ -50,7 +50,6 @@ difference_threshold = 0.25
 tile_size = 16
 macroblock_shape = [45, 80]
 # the QP for macroblock encoding
-qps = [24, 26, 28, 30, 34, 36]
 saliency_type = 'sigmoid'
 reducto_expensive_optimize = false
 reducto_expensive_optimize_iterations = 10
@@ -62,9 +61,9 @@ reducto_expensive_optimize_iterations = 10
     [backprop.tunable_config]
     # Discrete knobs: 1: expensive, 0: cheap.
     # Continuous knobs: initial values for them.
-    reducto_pixel_weight = 1.0
+    # reducto_pixel_weight = 1.0
     reducto_pixel_bias = 0.0
-    reducto_area_weight = 1.0
+    # reducto_area_weight = 1.0
     reducto_area_bias = 0.0
     # reducto_edge_weight = 1.0
     # reducto_edge_bias = 0.0
@@ -81,9 +80,9 @@ reducto_expensive_optimize_iterations = 10
     [backprop.tunable_config_lr]
     # macroblocks = 2000 
 
-    reducto_pixel_weight = 0.1
+    # reducto_pixel_weight = 0.1
     # reducto_pixel_bias = 0.1
-    reducto_area_weight = 0.1
+    # reducto_area_weight = 0.1
     # reducto_area_bias = 0.1
     # reducto_edge_weight = 0.1
     # reducto_edge_bias = 0.1
@@ -129,4 +128,4 @@ gt_confidence_threshold = 0.5
 # let's only care about cars
 class_ids = [2]
 size_threshold = 0.05
-iou_threshold = 0.9
+iou_threshold = 0.5

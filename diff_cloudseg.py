@@ -40,17 +40,18 @@ from utils.video_reader import read_video, read_video_config, read_video_to_tens
 import utils.config_utils as conf
 from collections import defaultdict
 from tqdm import tqdm
-from inference import inference
+from utils.inference import inference, examine
 from utils.encode import encode, tile_mask
-from utils.reducto import reducto_process, reducto_process_on_frame, reducto_init
-from examine import examine
+from utils.reducto import reducto_process, reducto_process_on_frame, reducto_update_mean_std, reducto_feature2meanstd
 import pymongo
 from munch import *
 from utils.seed import set_seed
-from utils.gradient import grad_macroblocks, grad, grad_reducto_expensive
+from utils.gradient import grad_macroblocks, grad, grad_reducto_expensive, grad_reducto_cheap
 from utils.tqdm_handler import TqdmLoggingHandler
 from utils.video_visualizer import VideoVisualizer
 from detectron2.structures.instances import Instances
+
+import utils.video_visualizer as vis
 
 sns.set()
 set_seed()
@@ -97,8 +98,8 @@ def read_expensive_from_config(gt_args, state, app, db, command_line_args, train
 
         if 'macroblocks' in state:
             args.macroblocks = state['macroblocks']
+            
         # encode
-        # args['gamma'] = 1.0
         args.command_line_args = vars(command_line_args)
         args.settings = settings.to_dict()
         video_name, video_config = encode(args)
@@ -154,6 +155,10 @@ def main(command_line_args):
             # will directly solve the closed-form solution. No lr needed.
             state[key] = torch.ones(settings.backprop.macroblock_shape).int() * settings.backprop.qps[0]
             continue
+        elif 'reducto' in key:
+            # will directly solve the closed-form solution. No lr needed.
+            state[key] = torch.tensor(settings.backprop.tunable_config[key])
+            continue
         
         lr = settings.backprop.lr
         if key in settings.backprop.tunable_config_lr.keys():
@@ -173,68 +178,38 @@ def main(command_line_args):
 
     for sec in tqdm(range(command_line_args.start, command_line_args.end), unit='sec', desc='progress'):
 
+        # the text for visualization
+        vis.text = ""
         
-        
+        # get the ground truth configuration and the camera-side ground truth video
         gt_args = munchify(settings.ground_truths_config.to_dict()) 
         gt_args.update({
             'input': command_line_args.input,
             'second': sec,
         })
-
-        train_flag = (settings.backprop.train and (sec-command_line_args.start) % command_line_args.frequency == 0)
-        stat, args, server_video = read_expensive_from_config(gt_args, state, app, db, command_line_args, train_flag)
-        logger.info('Actual compute: %d' % len(stat['encoded_frames']))
         gt_video_name, gt_video_config = encode(gt_args)
         gt_video = read_video_to_tensor(gt_video_name)
         logger.info('Ground truth bandwidth: %d', gt_video_config['bw'])
-        # args.command_line_args = vars(command_line_args)
-        # args.settings = settings.as_dict()
-
-        # reducto init
-        if train_flag:
-            reducto_init(gt_video,state,optimizer)
-            logger.info('Reducto parameter initialized.')
-        
-        
-        if 'gamma' in state:
-            server_video = (server_video ** state['gamma']).clamp(0, 1)         
+        # update the mean and the std of reducto thresholds.
+        for key in state.keys():
+            if 'reducto' in key:
+                reducto_update_mean_std(gt_video, state, gt_args, db)
+                break
             
-
-        
-        
-        # results = pickle.loads(inference(args, db, app)['inference_result'])
+            
+        # encode and inference on the current video.
+        train_flag = (settings.backprop.train and (sec-command_line_args.start) % command_line_args.frequency == 0)
+        stat, args, server_video = read_expensive_from_config(gt_args, state, app, db, command_line_args, train_flag)
+        my_video_config = stat['my_video_config']
+        logger.info('Actual compute: %d' % my_video_config['compute'])
+        vis.text += ("Comp: %d\n"
+                          "Acc : %.3f\n"
+                          "Bw  : %.3f\n") % (my_video_config['compute'], stat['acc'], stat['norm_bw'])
         gt_results = pickle.loads(stat['gt_inference_result'])
-        my_results = pickle.loads(stat['inference_result'])
-
-        # visualize
-        for idx, frame in enumerate(tqdm(server_video, desc='visualize', unit='frame')):
-
-            image = T.ToPILImage()(frame.clamp(0, 1))
-            text = ("Comp: %d\n"
-                    "Acc : %.3f\n"
-                    "Bw  : %.3f") % (len(stat['encoded_frames']), stat['acc'], stat['norm_bw'])
-
-            draw = ImageDraw.Draw(image)
-            font = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 24)
-            draw.multiline_text((10, 10), text, fill=(255, 0, 0), font=font)
-
-            my_result = app.filter_result(my_results[idx])
-            gt_result = app.filter_result(gt_results[idx], gt=True)
-
-            gt_ind, my_ind, gt_filtered, my_filtered = app.get_undetected_ground_truth_index(my_result, gt_result)
-
-            image_error = app.visualize(image, {"instances": Instances.cat([gt_filtered[gt_ind], my_filtered[my_ind]])})
-            image_inference = app.visualize(image, my_result)
-            errors_vis.add_frame(image_error)
-            results_vis.add_frame(image_inference)
-
-        logger.info('Compute: %d, Acc: %.3f, BW: %.3f', len(stat['encoded_frames']), stat['acc'], stat['norm_bw'])
-                       
+        my_results = pickle.loads(stat['my_inference_result'])         
 
 
         if train_flag:
-
-            
 
             saliencies = {}
             raw_saliencies_tensor = []
@@ -246,7 +221,9 @@ def main(command_line_args):
             if any('reducto' in key for key in state.keys()) and not settings.backprop.reducto_expensive_optimize:
                 # get the differentiable reducto processed video on the camera
                 camera_video, metrics = reducto_process(gt_video, state)
-                logger.info('Estimated compute: %.3f, Entropy: %.3f', metrics['compute'].item(), metrics['entropy'].item())
+                # new_vis.text = 'Estimated compute: %.3f' % metrics['compute'].item()
+                # vis.text += new_vis.text
+                # logger.info(new_vis.text)
 
             # calculate saliency on each frame.
             if command_line_args.loss_type == 'saliency_error':
@@ -336,50 +313,14 @@ def main(command_line_args):
 
                     else:
                         raise NotImplementedError
-
-                        
-
-
-
-                    # writer.add_scalar('Reconstruction/%d' % idx, reconstruction_loss.item(), iteration)
-
-
-                    # if fid % 10 == 0 and settings.backprop.visualize and iteration == 0:
-                    #     with torch.no_grad():
-                    #         for key in result['instances'].get_fields():
-                    #             if key == 'pred_boxes':
-                    #                 result['instances'].get(key).tensor = result['instances'].get(key).tensor.detach().cpu()
-                    #             else:
-                    #                 result['instances'].set(key, result['instances'].get(key).detach().cpu())
-                    #         gt_ind, res_ind, gt_filtered, res_filtered = app.get_undetected_ground_truth_index(result, gt_results[idx])
-
-                    #         logger.info('Generating visualization images...')
-                    #         image = T.ToPILImage()(frame.detach()[0].clamp(0, 1))
-                    #         image_FN = app.visualize(image, {'instances': gt_filtered[gt_ind]})
-                    #         image_FP = app.visualize(image, {'instances': res_filtered[res_ind]})
-                    #         result = app.filter_result(result)
-                    #         image_all = app.visualize(image, result)
-
-                    #         logger.info('Logging visualizations')
-                    #         visualize_heat_by_summarywriter(image_FN, saliency[0][0], 'FN', writer, fid, tile=False)
-                    #         visualize_heat_by_summarywriter(image_FP, saliency[0][0], 'FP', writer, fid, tile=False)
-                    #         visualize_heat_by_summarywriter(image_all, tile_mask( (state['macroblocks'] > 0.5).float(), settings.backprop.tile_size), 'saliency', writer, fid, tile=False)
-                            
-
-                        # if iteration == 0:
-                        #     writer.add_image('GT/%d' % idx, gt_video[idx], idx)
                         
                 # backward cost parameters
                 if 'metrics' in locals():
-                    (settings.backprop.compute_weight * (metrics['compute'] + settings.backprop.entropy_weight * metrics['entropy'])).backward()
-
-                        
-                
+                    if metrics['compute'].grad_fn is not None:
+                        (settings.backprop.compute_weight * metrics['compute']).backward()
 
 
-                # saliencies_tensor = torch.cat(saliencies_tensor)
-                enable_expensive_reducto_optimize = False
-
+                reducto_optimized = False
                 for key in settings.backprop.tunable_config.keys():
                     if key == 'cloudseg':
                         # already optimized when backwarding.
@@ -388,22 +329,19 @@ def main(command_line_args):
                         grad_macroblocks(args, key, torch.cat(raw_saliencies_tensor), gt_video_config, gt_video)
                         continue
                     elif 'reducto' in key:
-                        
-                        # already optimized when backwarding.
-                        if settings.backprop.reducto_expensive_optimize:
-                            enable_expensive_reducto_optimize=True
+                        if not reducto_optimized:
+                            if settings.backprop.reducto_expensive_optimize:
+                                grad_reducto_expensive(state, gt_video, inference_results, app)
+                            else:
+                                grad_reducto_cheap(state, gt_video, torch.cat(saliencies_tensor))
+                                
+                            reducto_optimized = True
                             
                         continue
                     grad(args, key, torch.cat(saliencies_tensor), gt_video_config, gt_video)
-                    
-                if enable_expensive_reducto_optimize:
-                    grad_reducto_expensive(state, key, gt_video, inference_results, app, optimizer)
 
-
-                # if not settings.backprop.early_optimize:
-                if not settings.backprop.reducto_expensive_optimize:
-                    optimizer.step()
-                    optimizer.zero_grad()
+                optimizer.step()
+                optimizer.zero_grad()
 
                 # round to [0,1]         
                 for key in conf.serialize_order:
@@ -432,9 +370,39 @@ def main(command_line_args):
                             param = state[key]
                             logger.info('Macroblocks: mean: %.3f', param.float().mean())
                             continue
+                        if 'reducto' in key:
+                            param = state[key]
+                            logger.info(f'{key}: %.3f', param.float().mean())
+                            continue
                         state_str += '%s : %.3f, grad: %.7f\n' % (key, state[key], state[key].grad)
 
                     logger.debug(f'Current state: {state}')
+                    
+        
+        # visualize
+        for idx, frame in enumerate(tqdm(server_video, desc='visualize', unit='frame')):
+
+            image = T.ToPILImage()(frame.clamp(0, 1))
+            
+
+            draw = ImageDraw.Draw(image)
+            font = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 24)
+            # manually bold the text :-P
+            draw.multiline_text((10, 10), vis.text, fill=(255, 0, 0), font=font)
+            draw.multiline_text((11, 10), vis.text, fill=(255, 0, 0), font=font)
+            draw.multiline_text((12, 10), vis.text, fill=(255, 0, 0), font=font)
+
+            my_result = app.filter_result(my_results[idx])
+            gt_result = app.filter_result(gt_results[idx], gt=True)
+
+            gt_ind, my_ind, gt_filtered, my_filtered = app.get_undetected_ground_truth_index(my_result, gt_result)
+
+            image_error = app.visualize(image, {"instances": Instances.cat([gt_filtered[gt_ind], my_filtered[my_ind]])})
+            image_inference = app.visualize(image, my_result)
+            errors_vis.add_frame(image_error)
+            results_vis.add_frame(image_inference)
+            
+        logger.info('Visualize text:\n%s', vis.text)
         
 
 

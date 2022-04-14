@@ -5,7 +5,9 @@ from config import settings
 from PIL import Image
 import numpy as np
 
-__all__ = ['VideoVisualizer']
+text = ""
+
+__all__ = ['VideoVisualizer', 'text']
 
 class VideoVisualizer:
 

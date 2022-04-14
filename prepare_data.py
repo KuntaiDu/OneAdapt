@@ -18,7 +18,7 @@ segment_length = 30
 for v, idx in video_list:
     
     length = len(glob.glob(v + '/*.png'))
-    path = Path('videos/dashcamcropped/dashcamcropped_%d_3xdownsample' % idx)
+    path = Path('videos/dashcamcropped/dashcamcropped_%d_30frames' % idx)
     os.system(f'rm -r {path}')
     path.mkdir(parents=True)
     
@@ -28,7 +28,7 @@ for v, idx in video_list:
 
         # perform 3x downsampling        
         run([
-            'ffmpeg', '-r', '30', '-start_number', f'{start}', '-i', v + '/%010d.png', '-c:v', 'libx264', '-qp', '0', '-r', '10', '-t', '1', str(path / ('part%d.mp4' % time))
+            'ffmpeg', '-r', '30', '-start_number', f'{start}', '-i', v + '/%010d.png', '-c:v', 'libx264', '-qp', '0', '-r', '30', '-t', '1', str(path / ('part%d.mp4' % time))
         ])
 
     

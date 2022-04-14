@@ -3,6 +3,8 @@ import torch
 
 import pickle
 
+from munch import munchify
+
 __all__ = ['serialize_db_argument']
 
 
@@ -13,5 +15,4 @@ def serialize_db_argument(args):
         if isinstance(args[key], torch.Tensor):
             args[key] = args[key].tolist()
 
-    return args
-    
+    return munchify(args)

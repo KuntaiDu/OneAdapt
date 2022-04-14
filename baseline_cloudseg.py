@@ -42,7 +42,6 @@ from examine import examine
 import pymongo
 from munch import *
 
-# from knob.control_knobs import framerate_control, quality_control
 
 sns.set()
 

@@ -53,12 +53,12 @@ fmts = [
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-for compute_weight in [2]:
+for compute_weight in [1]:
     for freq in [10]:
 
         for fmt in fmts:
 
-            st, ed = 35, 45
+            st, ed = 41, 51
             # st, ed = 120, 130
 
             # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
@@ -67,7 +67,7 @@ for compute_weight in [2]:
 
             loss_type = 'saliency_error'
 
-            approach = approach = f'backprop_reducto_expensive_comp_weight_{compute_weight}_freq_{freq}'
+            approach = approach = f'reducto_newstart_expensive_comp_weight_{compute_weight}_freq_{freq}'
             
 
             if force or not os.path.exists(output):

@@ -12,8 +12,14 @@ import torch
 from config import settings
 from utils.tqdm_handler import TqdmLoggingHandler
 from itertools import product
+from copy import deepcopy
+from tqdm import tqdm
+import utils.video_visualizer as vis
 
-logger = logging.getLogger("Camera")
+
+__all__ = ['grad_macroblocks', 'grad', 'grad_reducto_expensive', 'grad_reducto_cheap', 'grad']
+
+logger = logging.getLogger("gradient")
 
 def grad_macroblocks(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
 
@@ -83,70 +89,100 @@ def grad_macroblocks(args: dict, key: str, grad: torch.Tensor, gt_config, gt_vid
 
 
 
-def grad_reducto_expensive(state, key, gt_video, results, app, optimizer):
-    
-    
-    for iterations in range(settings.backprop.reducto_expensive_optimize_iterations):
-    
-        # calculate accuracy
-        cache = {}
-        prob_matrix = {}
-        metrics = {'compute': torch.tensor([0.]), 'entropy': torch.tensor([0.])}
-        for i in range(len(gt_video)):
-            for j in range(len(gt_video)):
-                prob_matrix[i, j] = torch.tensor([0.0])
-                
-        prob_matrix[0, 0] = 1.0
-        reducto_process_on_frame(gt_video, state, cache, 1, 0, torch.tensor([1.0]), prob_matrix, 1, metrics)
-        
-        average_accuracy = 0
-        for cur_id in range(len(gt_video)):
-            for prev_id in range(len(gt_video)):
-                # attach a frame id 0 to the inference results, to fit the format of calc_accuracy
-                average_accuracy = average_accuracy + prob_matrix[cur_id, prev_id] * app.calc_accuracy({0:results[prev_id]}, {0:results[cur_id]})['f1']
-        
-        logger.info('Reducto expensive udpate: Acc %.3f, Compute: %.3f, Entropy: %.3f', average_accuracy, metrics['compute'], metrics['entropy'])
-        (-average_accuracy + settings.backprop.compute_weight * (metrics['compute'] + settings.backprop.entropy_weight * metrics['entropy'])).backward()
-        
-        # logger.info('Before update: weight %.3f, bias: %.3f', state['reducto_pixel_weight'].item(), state['reducto_pixel_bias'].item())
-        # logger.info('Grad: %.3f %.3f', state['reducto_pixel_weight'].grad.item(), state['reducto_pixel_bias'].grad.item())
-        # # for group in optimizer.param_groups:
-        # #     torch.nn.utils.clip_grad_value_(group['params'], settings.backprop.gradient_clipping_value)
-        # logger.info('Grad: %.3f %.3f', state['reducto_pixel_weight'].grad.item(), state['reducto_pixel_bias'].grad.item())
-        optimizer.step()
-        optimizer.zero_grad()
-        # logger.info('After update: weight %.3f, bias: %.3f', state['reducto_pixel_weight'].item(), state['reducto_pixel_bias'].item())
-        # breakpoint()
-        
-        
+def grad_reducto_expensive(state, gt_video, results, app):
+    """Optimize reducto thresholds
 
-def grad_reducto_cheap(state, key, gt_video, app):
+    Args:
+        state (dict): the state dict that includes reducto thresholds
+        gt_video (torch.tensor): the ground-truth video
+        results (dict): the ground truth inference results
+        app: calculate the inference accuracy
+    
+    Returns:
+        dict: the optimal objective function
+    """  
+    
     
     keys = list(reducto_feature2meanstd.keys())
     
-    min_objective = 100000
+    min_objective = {}
     min_state = {}
     
-    for candidate in product([[-3, -1, 1, 3] for key in keys]):
-        
+    for candidate in tqdm(list(product(*[[-2, 1,0, 1, 2] for key in keys])), desc='reducto expensive search'):
         for idx, val in enumerate(candidate):
             
-            state[f'reducto_{keys[idx]}_bias'] = candidate
-            
+            state[f'reducto_{keys[idx]}_bias'] = torch.tensor(val * 1.0)
+        
+        with torch.no_grad():
             video, metrics = reducto_process(gt_video,state)
-            
-            # calculate objective
-            
-            
-            
-            
-            
         
+        prob_matrix = metrics['prob_matrix']
+        # calculate objective
+        average_accuracy = 0
+        for cur_id in range(len(gt_video)):
+            for prev_id in range(len(gt_video)):
+                if prob_matrix[cur_id, prev_id] > 0:
+                    # attach a frame id 0 to the inference results, to fit the format of calc_accuracy
+                    average_accuracy = average_accuracy + prob_matrix[cur_id, prev_id] * app.calc_accuracy({0:results[prev_id]}, {0:results[cur_id]})['f1']
+                
+        reconstruction = -average_accuracy
+        compute = settings.backprop.compute_weight * metrics['compute']
         
+        if min_objective == {} or reconstruction + compute < min_objective['rec'] + min_objective['com']:
+            min_objective['rec'] = reconstruction
+            min_objective['com'] = compute
+            min_state = deepcopy(state)
+                
+    # recover the min state
+    for key in state:
+        state[key] = min_state[key]
+    
+    return min_objective
+
+
+def grad_reducto_cheap(state, gt_video, saliency):
+    """Optimize reducto thresholds cheaply through grid search
+
+    Args:
+        state (dict): the state dict that includes reducto thresholds
+        gt_video (torch.tensor): the ground-truth video
+        saliency (torch.tensor): the saliency on the video
+    
+    Returns:
+        dict: the optimal objective function
+    """  
+    
+    keys = list(reducto_feature2meanstd.keys())
+    
+    min_objective = {}
+    min_state = {}
+    
+    for candidate in tqdm(list(product(*[[-2, 1,0, 1, 2] for key in keys])), desc='reducto cheap search'):
+
+        for idx, val in enumerate(candidate):
             
+            state[f'reducto_{keys[idx]}_bias'] = torch.tensor(val * 1.0)
+
+        with torch.no_grad():
+            video, metrics = reducto_process(gt_video,state)
         
+        # calculate objective
+        reconstruction = (saliency * (gt_video - video).abs()).mean()
+        compute = settings.backprop.compute_weight * metrics['compute']
+        logger.info('state: %s, rec: %.3f, com: %.3f', candidate, reconstruction, compute)
         
+        if min_objective == {} or reconstruction + compute < min_objective['rec'] + min_objective['com']:
+            min_objective['rec'] = reconstruction
+            min_objective['com'] = compute
+            min_state = deepcopy(state)
+            
+    # recover the min state
+    for key in state:
+        state[key] = min_state[key]
+
+    vis.text += "rec: %.3e, com: %.3e\n" % (min_objective['rec'], min_objective['com'])
         
+    return min_objective
 
         
 
