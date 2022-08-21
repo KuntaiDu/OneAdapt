@@ -47,25 +47,30 @@ def probe_range(fmt):
 #     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 # ]
 
+# fmts = [
+#     f'videos/dashcamcropped/dashcamcropped_1_3xdownsample/part%d.mp4'
+# ]
+
 fmts = [
-    f'videos/dashcamcropped/dashcamcropped_1_3xdownsample/part%d.mp4'
+    f"videos/rural/rural_{i}/part%d.mp4" for i in range(5)
 ]
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-for compute_weight in [1]:
-    for freq in [10]:
+for compute_weight in [1e-8]:
+    for freq in [4, 3, 2]:
 
         for fmt in fmts:
 
-            st, ed = 41, 51
+            # st, ed = 41, 51
+            st, ed = 0, probe_range(fmt)
             # st, ed = 120, 130
 
             # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
             # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
             # approach = 'backprop_30_threshold_loss_iterative_training_new_lr_7e-4_cheat_saliency_error'
 
-            loss_type = 'saliency_error'
+            loss_type = 'None'
 
             approach = approach = f'reducto_newstart_expensive_comp_weight_{compute_weight}_freq_{freq}'
             
@@ -86,7 +91,7 @@ for compute_weight in [1]:
                     '--start', f'{st}',
                     # '--end', '%d' % probe_range(fmt),
                     '--end',  f'{ed}',
-                    '--num_iterations', '1',
+                    '--num_iterations', '1', 
                     '--loss_type', loss_type,
                     '--frequency', f'{freq}',
                     # '--qp', f'{qp}',

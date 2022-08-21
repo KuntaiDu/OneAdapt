@@ -188,44 +188,51 @@ class COCO_Model(DNN):
             ret = ret.to("cpu")
         return ret
 
-    # def calc_loss(self, image, result, args):
+    def calc_loss(self, image, result):
 
-    #     if self.predictor is None:
-    #         self.predictor = DefaultPredictor(self.cfg)
+        if self.predictor is None:
+            self.predictor = DefaultPredictor(self.cfg)
 
-    #     self.predictor.model.train()
+        self.predictor.model.train()
 
-    #     result = self.filter_result(result, args)
+        result = self.filter_result(result)
 
-    #     if result["instances"].has("pred_classes"):
-    #         result["instances"].gt_classes = result["instances"].pred_classes
-    #     if result["instances"].has("pred_boxes"):
-    #         result["instances"].gt_boxes = result["instances"].pred_boxes
-    #     if result["instances"].has("pred_masks"):
-    #         result["instances"].gt_masks = result["instances"].pred_masks
-    #     if result["instances"].has("pred_keypoints"):
-    #         result["instances"].gt_keypoints = Keypoints(
-    #             result["instances"].pred_keypoints
-    #         )
+        if result["instances"].has("pred_classes"):
+            result["instances"].gt_classes = result["instances"].pred_classes
+        if result["instances"].has("pred_boxes"):
+            result["instances"].gt_boxes = result["instances"].pred_boxes
+        if result["instances"].has("pred_masks"):
+            result["instances"].gt_masks = result["instances"].pred_masks
+        if result["instances"].has("pred_keypoints"):
+            result["instances"].gt_keypoints = Keypoints(
+                result["instances"].pred_keypoints
+            )
 
-    #     # convert result to target
-    #     image, h, w, _ = self.preprocess_image(image)
+        # convert result to target
+        image, h, w, _ = self.preprocess_image(image)
 
-    #     # Detectron2 models must be wrapped with EventStorage to run normally
-    #     with EventStorage() as storage:
+        # Detectron2 models must be wrapped with EventStorage to run normally
+        with EventStorage() as storage:
 
-    #         ret = self.predictor.model(
-    #             [
-    #                 {
-    #                     "image": image[0],
-    #                     "height": h,
-    #                     "width": w,
-    #                     "instances": result["instances"],
-    #                 }
-    #             ]
-    #         )
+            ret = self.predictor.model(
+                [
+                    {
+                        "image": image[0],
+                        "height": h,
+                        "width": w,
+                        "instances": result["instances"],
+                    }
+                ]
+            )
 
-    #     return sum(ret.values())
+        loss = 0
+        for key in ret:
+            if 'rpn' in key:
+                loss = loss + 0* ret[key]
+            else:
+                loss = loss + ret[key]
+
+        return loss
 
     # def calc_dist(self, x, gt, args):
 

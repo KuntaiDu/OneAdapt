@@ -43,29 +43,17 @@ def probe_range(fmt):
 # fmts = [
 #     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 # ]
-# fmts = [
-#     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
-# ]
-
-# for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
-
-# for compute_weight in [0.5, 1, 1.5, 2]:
-# fmts = [
-#     f'videos/dashcamcropped/dashcamcropped_1_3xdownsample/part%d.mp4'
-# ]
 fmts = [
-    f"videos/rural/rural_{i}/part%d.mp4" for i in range(3, 5)
+    f'/datamirror/kuntai/code/diff/videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 ]
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-for compute_weight in [1e-7]:
+for thresh in [0.7]:
 
     for fmt in fmts:
 
-        # st, ed = 41, 51
-        st, ed = 0, probe_range(fmt)
-        # st, ed = 120, 130
+        freq = orig_freq
 
         # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
         # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
@@ -73,28 +61,23 @@ for compute_weight in [1e-7]:
 
         loss_type = 'saliency_error'
 
-        approach = f'backprop_reducto_newstart_cheap_new_comp_weight_{compute_weight}'
+        approach = f'dds_thresh_{thresh}'
         
 
-        if force or not os.path.exists(output):
+        if force:
             
             env = os.environ.copy()
             
-            # env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{bw_perc}'
-            env['DYNACONF_BACKPROP__COMPUTE_WEIGHT'] = f'{compute_weight}'
-            env['SETTINGS_FILE'] = 'settings_reducto.toml'
+            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_macroblock.toml'
 
             run([
-                'python', 'diff_cloudseg.py',
+                'python', 'dds.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',
-                '--start', f'{st}',
+                '--start', '0',
                 # '--end', '%d' % probe_range(fmt),
-                '--end', f'{ed}',
-                '--num_iterations', '1',
-                '--loss_type', loss_type,
-                '--frequency', '1',
+                '--end', '%d' % 30,
                 # '--qp', f'{qp}',
                 # '--res', f'{res}',
                 # '--fr', f'{fr}',

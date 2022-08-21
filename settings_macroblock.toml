@@ -3,13 +3,14 @@
 # num_segments = 61
 # num_segments = 61
 # collection_name = 'Feb23_encoding_limit_compute'
-collection_name = 'Mar26_roi_coco'
+collection_name = 'Aug20_macroblock'
 enable_cloudseg = false
 random_seed = 37
 segment_length = 10
 input_shape = [720, 1280] # H,W
 # qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
 x264_dir = '/datamirror/kuntai/code/myh264/'
+root_dir = '/datamirror/kuntai/code/diff/'
 compute_limit = 5
 
 [configuration_space]
@@ -32,6 +33,17 @@ compute_limit = 5
 # reducto_edge = [0.0075, 0.008, 0.0085, 0.009, 0.0095]
 
 
+[dds]
+
+region_proposal_threshold = 0.7
+size_threshold = 0.04
+app = 'COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
+low_quality = 36
+high_quality = 26
+iou_threshold = 0.3
+tile_size = 16
+
+
 [backprop]
 lr = 0.1
 bw_percentage = 0.1 # 10% of the video in high quality.
@@ -48,8 +60,9 @@ difference_threshold = 0.25
 tile_size = 16
 macroblock_shape = [45, 80]
 # the QP for macroblock encoding
-qps = [24, 26, 28, 30, 34, 36]
+qps = [24,  36]
 saliency_type = 'sigmoid'
+skip_saliency_differentiable_backprop = false
 
 
     [backprop.frozen_config]

@@ -41,8 +41,8 @@ from utils.reducto import calc_reducto_diff
 from utils.tqdm_handler import TqdmLoggingHandler
 from utils.video_reader import (read_video, read_video_config,
                                 read_video_to_tensor)
+import utils.bbox_utils as bu
 
-__all__ = ['encode', 'tile_mask']
 logger = logging.getLogger('encode')
 
 
@@ -153,18 +153,34 @@ def normal_encoding(args, input_video, output_video):
                     
         
         
+    if 'png' in input_video:
+        ffmpeg_command += [
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            # "-stats",
+            "-r",
+            "%d" % settings.ground_truths_config.fr, # specify the image input frame rate.
+            "-i",
+            input_video,
+            "-s",
+            f"{args.res}"
+        ]
+
+    else:
     
-    ffmpeg_command += [
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        # "-stats",
-        "-i",
-        input_video,
-        "-s",
-        f"{args.res}"
-    ]
+        ffmpeg_command += [
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            # "-stats",
+            "-i",
+            input_video,
+            "-s",
+            f"{args.res}"
+        ]
     
     if hasattr(args, 'bf'):
         ffmpeg_command += ["-bf", f"{args.bf}"]
@@ -203,7 +219,7 @@ def encode(args):
 
     input_video = args.input % args.second
     # nput_video = args.input % 1
-    prefix = f"cache/temp_{time.time()}"
+    prefix = f"{settings.root_dir}/cache/temp_{time.time()}"
     output_video = prefix + '.mp4'
     
     
@@ -257,7 +273,7 @@ def encode(args):
                     prev_frame = cur_frame
                     prev_frame_pil = T.ToPILImage()(frame[0])
                     
-                    remaining_frames = remaining_frames | {fid}
+                    remaining_frames = remaining_frames | {fid_minus_one}
                     
                 else:
                     
@@ -269,7 +285,7 @@ def encode(args):
                         executor.submit(T.ToPILImage()(frame[0]).save, (prefix + '/%010d.png' % fid))
                         prev_frame = cur_frame
                         prev_frame_pil = T.ToPILImage()(frame[0])
-                        remaining_frames = remaining_frames | {fid}
+                        remaining_frames = remaining_frames | {fid_minus_one}
                     else:
                         # Do not send the new frame
                         executor.submit(prev_frame_pil.save, (prefix + '/%010d.png' % fid))
@@ -295,3 +311,56 @@ def encode(args):
     return output_video, output_video_config
 
 
+
+
+
+def generate_mask_from_regions(
+    mask_slice, regions, minval, tile_size, cuda=False
+):
+
+    # (xmin, ymin, xmax, ymax)
+    regions = bu.point_form(regions)
+    mask_slice[:, :, :, :] = minval
+    mask_slice_orig = mask_slice
+
+    # tile the mask
+    mask_slice = tile_mask(mask_slice[0,0], tile_size)[None, None,:,:]
+    mask_slice = torch.cat([mask_slice, mask_slice, mask_slice], dim=1)
+
+    # put regions on it
+    x = mask_slice.shape[3]
+    y = mask_slice.shape[2]
+
+    for region in regions:
+        xrange = torch.arange(0, x)
+        yrange = torch.arange(0, y)
+
+        xmin, ymin, xmax, ymax = region
+        yrange = (yrange >= ymin) & (yrange <= ymax)
+        xrange = (xrange >= xmin) & (xrange <= xmax)
+
+        if xrange.nonzero().nelement() == 0 or yrange.nonzero().nelement() == 0:
+            continue
+
+        xrangemin = xrange.nonzero().min().item()
+        xrangemax = xrange.nonzero().max().item() + 1
+        yrangemin = yrange.nonzero().min().item()
+        yrangemax = yrange.nonzero().max().item() + 1
+        mask_slice[:, :, yrangemin:yrangemax, xrangemin:xrangemax] = 1
+
+    # revert the tile process
+    mask_slice = F.conv2d(
+        mask_slice,
+        torch.ones([1, 3, tile_size, tile_size]).cuda()
+        if cuda
+        else torch.ones([1, 3, tile_size, tile_size]),
+        stride=tile_size,
+    )
+    mask_slice = torch.where(
+        mask_slice > 0.5,
+        torch.ones_like(mask_slice),
+        torch.zeros_like(mask_slice),
+    )
+    mask_slice_orig[:, :, :, :] = mask_slice[:, :, :, :]
+
+    return mask_slice_orig

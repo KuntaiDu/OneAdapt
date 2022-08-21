@@ -3,13 +3,13 @@
 # num_segments = 61
 # num_segments = 61
 # collection_name = 'Feb23_encoding_limit_compute'
-collection_name = 'Mar30_reducto'
+collection_name = 'Mar26_roi_coco'
 enable_cloudseg = false
 random_seed = 37
 segment_length = 10
 input_shape = [720, 1280] # H,W
-qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
-x264_dir = '/tank/kuntai/myh264/'
+# qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
+x264_dir = '/datamirror/kuntai/code/myh264/'
 compute_limit = 5
 
 [configuration_space]
@@ -34,15 +34,13 @@ compute_limit = 5
 
 [backprop]
 lr = 0.1
-# bw_percentage = 0.1 # 10% of the video in high quality.
+bw_percentage = 0.1 # 10% of the video in high quality.
 # bw_weight = 0.07
 # reconstruction_loss_weight = 0.5
 train = true # update the configuration or not
 # std_score_mean_weight = 0
-compute_weight = 0.1
-entropy_weight = 0
-gradient_clipping_value = 1.0
-# sum_score_mean_weight = 1
+# compute_weight = 3
+# sum_score_mean_wight = 1
 app = 'COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
 early_optimize = true
 visualize = false
@@ -50,24 +48,17 @@ difference_threshold = 0.25
 tile_size = 16
 macroblock_shape = [45, 80]
 # the QP for macroblock encoding
+qps = [24, 26, 28, 30, 34, 36]
 saliency_type = 'sigmoid'
-reducto_expensive_optimize = false
-reducto_expensive_optimize_iterations = 10
-skip_saliency_differentiable_backprop = true    # skip differentiable backprop on reducto cuz we use exhaustive search.
-
 
 
     [backprop.frozen_config]
 
     [backprop.tunable_config]
-    # Discrete knobs: 1: expensive, 0: cheap.
-    # Continuous knobs: initial values for them.
-    # reducto_pixel_weight = 1.0
-    reducto_pixel_bias = 0.0
-    # reducto_area_weight = 1.0
-    reducto_area_bias = 0.0
-    # reducto_edge_weight = 1.0
-    # reducto_edge_bias = 0.0
+    # 1: expensive, 0: cheap.
+    # reducto_pixel = 1.0
+    # reducto_area = 1.0
+    # reducto_edge = 1.0
 
     # qp = 1.0
     # res = 1.0
@@ -76,17 +67,10 @@ skip_saliency_differentiable_backprop = true    # skip differentiable backprop o
     # me_method = 1.0
     # me_range = 1.0
     # subq = 1.0
-    # macroblocks = true
+    macroblocks = true
 
-    [backprop.tunable_config_lr]
+    # [backprop.tunable_config_lr]
     # macroblocks = 2000 
-
-    # reducto_pixel_weight = 0.1
-    # reducto_pixel_bias = 0.1
-    # reducto_area_weight = 0.1
-    # reducto_area_bias = 0.1
-    # reducto_edge_weight = 0.1
-    # reducto_edge_bias = 0.1
 
 
     # qp = 0.5
@@ -104,9 +88,12 @@ app = 'COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
 qp = 24
 res = '1280x720'
 fr = 10
-reducto_pixel_bias = -100.0
-reducto_area_bias = -100.0
-tag = 'gt'
+# bf = 1
+# me_method = "esa"
+# me_range = 16
+# subq = 9
+# preset = "veryslow"
+
 
 [inference_config]
 force_inference = false
@@ -115,7 +102,6 @@ visualize_step_size = 1
 
 [examine_config]
 force_examine = false
-
 
 
 

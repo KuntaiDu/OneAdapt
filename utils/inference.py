@@ -1,13 +1,13 @@
 
 import argparse
 import gc
-import hashlib
 import logging
 import pickle
 import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from pdb import set_trace
@@ -33,6 +33,7 @@ import utils.config_utils as conf
 from reducto.differencer import reducto_differencers
 from utils.db_utils import find_in_collection
 from utils.encode import encode
+from utils.hash import sha256_hash
 from utils.serialize import serialize_db_argument
 from utils.video_reader import (read_video, read_video_config,
                                 read_video_to_tensor)
@@ -70,8 +71,7 @@ def examine(my_args, gt_args, my_app, db, key='examine'):
     query = {
         'my_args': my_args,
         'gt_args': gt_args,
-        'gt_args_hash': hashlib.sha256(pickle.dumps(gt_args)).hexdigest(),
-        'my_args_hash': hashlib.sha256(pickle.dumps(my_args)).hexdigest()}
+    }
     
     
     ret = find_in_collection(query, db[key], 'examine', settings.examine_config.force_examine)
@@ -137,31 +137,35 @@ def inference(args, db, app=None, video_name=None, video_config=None):
         'encoded_video_hash': video_config['sha256'],
         'app': args.app
     }
-    
+
     ret = find_in_collection(query, db['inference'], 'inference', config.force_inference)
     
     if ret is None:
-        
         # result not found. Run inference.
 
         inference_results = {}
+        encoded_fids = video_config['encoded_frames']
 
         if args.get('cloudseg', None):
             logger.info('CloudSeg enabled. Will perform SR.')
 
         with torch.no_grad():
             for fid, frame in enumerate(tqdm(read_video_to_tensor(video_name), unit='frame', desc='inference')):
-                frame = frame.unsqueeze(0)
-                if args.get('cloudseg', None):
-                    frame = conf.SR_dnn(frame.to('cuda:1')).cpu()
-                inference_results[fid] = app.inference(frame, grad=False, detach=True, dryrun=False)
+                if fid in encoded_fids:
+                    # inference
+                    frame = frame.unsqueeze(0)
+                    if args.get('cloudseg', None):
+                        frame = conf.SR_dnn(frame.to('cuda:1')).cpu()
+                    inference_results[fid] = app.inference(frame, grad=False, detach=True, dryrun=False)
+                else:
+                    inference_results[fid] = deepcopy(inference_results[fid-1])
                 
         ret = query
         ret.update({
             'inference_result': pickle.dumps(inference_results),
             'video_config': video_config
         })
-        db['inference'].insert_one(args)
+        db['inference'].insert_one(ret)
         
         # cleanup
         Path(video_name).unlink()
