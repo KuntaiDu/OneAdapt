@@ -43,15 +43,22 @@ def probe_range(fmt):
 # fmts = [
 #     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 # ]
+
 fmts = [
-    f'/datamirror/kuntai/code/diff/videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
+    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(10)
 ]
+
+st, ed = 0, 180
+
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-for thresh in [0.25, 0.2, 0.15, 0.1]:
+for idx, fmt in enumerate(fmts):
 
-    for fmt in fmts:
+    if idx % 2 == 1:
+        continue
+    for idx2, thresh in enumerate([0.00625, 0.0125, 0.05, 0.2]):
+
 
         freq = orig_freq
 
@@ -61,23 +68,26 @@ for thresh in [0.25, 0.2, 0.15, 0.1]:
 
         loss_type = 'saliency_error'
 
+        
+
         approach = f'oneadapt_macroblock_thresh_{thresh}'
         
 
         if force:
             
             env = os.environ.copy()
-            
+            env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{thresh}'
+            env['DYNACONF_BACKPROP__VISUALIZE'] = 'false'
             env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_macroblock.toml'
 
             run([
-                'python', 'diff_cloudseg.py',
+                'python', 'diff_macroblocks.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',
-                '--start', '0',
+                '--start', f'{st}',
                 # '--end', '%d' % probe_range(fmt),
-                '--end', '%d' % 30,
+                '--end', f'{ed}',
                 # '--qp', f'{qp}',
                 # '--res', f'{res}',
                 # '--fr', f'{fr}',

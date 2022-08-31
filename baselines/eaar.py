@@ -124,7 +124,8 @@ def main(command_line_args):
         )
 
         lq_args = gt_args.copy()
-        lq_args.qp = settings.dds.low_quality
+        # for EAAR, use high quality.
+        lq_args.qp = settings.dds.high_quality
         lq_args.tag = 'mpeg'
         lq_video_name, lq_video_config = encode(lq_args)
         lq_video = read_video_to_tensor(lq_video_name)
@@ -156,12 +157,12 @@ def main(command_line_args):
                 proposals.proposal_boxes.area() < settings.dds.size_threshold * H * W
             ]
 
-            iou = pairwise_iou(
-                proposals.proposal_boxes, lq_inference["instances"].pred_boxes
-            )
-            iou = iou > 0.3
-            iou = iou.sum(dim=1)
-            proposals = proposals[iou == 0]
+            # iou = pairwise_iou(
+            #     proposals.proposal_boxes, lq_inference["instances"].pred_boxes
+            # )
+            # iou = iou > 0.3
+            # iou = iou.sum(dim=1)
+            # proposals = proposals[iou == 0]
             regions = center_size(proposals.proposal_boxes.tensor).cpu()
 
             maskB = generate_mask_from_regions(
@@ -172,7 +173,7 @@ def main(command_line_args):
             mask[idx:idx+1, :, :, :] = mask_delta
 
         dds_args = gt_args.copy()
-        dds_args.tag = "dds"
+        dds_args.tag = "eaar"
         dds_args.command_line_args = vars(command_line_args)
         del dds_args.qp
         mask = mask.sum(dim=[0,1])
