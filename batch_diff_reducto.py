@@ -82,10 +82,10 @@ for compute_weight in [1e-7]:
             
             # env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{bw_perc}'
             env['DYNACONF_BACKPROP__COMPUTE_WEIGHT'] = f'{compute_weight}'
-            env['SETTINGS_FILE'] = 'settings_reducto.toml'
+            env['SETTINGS_FILE'] = 'diff_reducto.toml'
 
             run([
-                'python', 'diff_cloudseg.py',
+                'python', 'diff_reducto.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',
