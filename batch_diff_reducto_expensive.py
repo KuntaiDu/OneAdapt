@@ -51,19 +51,25 @@ def probe_range(fmt):
 #     f'videos/dashcamcropped/dashcamcropped_1_3xdownsample/part%d.mp4'
 # ]
 
+# 1fps Accuracy > 60%
+
 fmts = [
-    f"videos/rural/rural_{i}/part%d.mp4" for i in range(5)
+    f'/dataheart/dataset/country/country_{i}/part%d.mp4' for i in [1,3]
 ]
+st, ed = 0, 119
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-for compute_weight in [1e-8]:
-    for freq in [4, 3, 2]:
+# varying profile frequency does not affect performance much.
+for idx, fmt in enumerate(fmts):
 
-        for fmt in fmts:
+    # if idx != 2:
+    #     continue
+    for compute_weight in [0.01, 0.04, 0.07]:
+        for freq in [4]:
+
 
             # st, ed = 41, 51
-            st, ed = 0, probe_range(fmt)
             # st, ed = 120, 130
 
             # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
@@ -72,7 +78,7 @@ for compute_weight in [1e-8]:
 
             loss_type = 'None'
 
-            approach = approach = f'reducto_newstart_expensive_comp_weight_{compute_weight}_freq_{freq}'
+            approach = approach = f'reducto_weight_{compute_weight}_freq_{freq}'
             
 
             if force or not os.path.exists(output):
@@ -84,7 +90,7 @@ for compute_weight in [1e-8]:
                 env['DYNACONF_BACKPROP__REDUCTO_EXPENSIVE_OPTIMIZE'] = 'true'
 
                 run([
-                    'python', 'diff_cloudseg.py',
+                    'python', 'diff_reducto.py',
                     '-i', fmt,
                     # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                     # '--sec', '61',

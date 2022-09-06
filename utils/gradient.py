@@ -173,6 +173,8 @@ def grad_reducto_cheap(original_state, gt_video, saliency, gt_args, db):
 
     keys = list(reducto_feature2meanstd.keys())
 
+    candidate_map = {}
+
     min_objective = {}
     min_state = {}
 
@@ -194,15 +196,36 @@ def grad_reducto_cheap(original_state, gt_video, saliency, gt_args, db):
 
         # calculate objective
         reconstruction = (saliency * (gt_video - video).abs()).mean()
-        compute = settings.backprop.compute_weight * len(set(reducto_encode_fids))
+        compute = len(set(reducto_encode_fids))
+        candidate_map[candidate] = {
+            "rec": reconstruction,
+            "com": compute,
+            "state": deepcopy(state)
+        }
 
+    # normalization: the reconstruction loss of highest quality should be 1.0
+    reconstruction_list = torch.tensor([candidate_map[i]["rec"] for i in candidate_map])
+    reconstruction_norm = reconstruction_list.max() - reconstruction_list.min()
+    for candidate in candidate_map:
+        # if reconstruction_norm > 0:
+        #     candidate_map[candidate]["rec"] = candidate_map[candidate]["rec"] / reconstruction_norm
+        # else:
+        #     candidate_map[candidate]["rec"] = 1.0
+        candidate_map[candidate]["rec"] = (candidate_map[candidate]["rec"] + 1e-15).log10()
+
+
+    weight = settings.backprop.compute_weight
+    for candidate in candidate_map:
+        reconstruction = candidate_map[candidate]["rec"]
+        compute = candidate_map[candidate]["com"]
+        state = candidate_map[candidate]["state"]
         if (
             min_objective == {}
-            or reconstruction + compute < min_objective["rec"] + min_objective["com"]
+            or reconstruction + weight * compute < min_objective["rec"] + weight * min_objective["com"]
         ):
             min_objective["rec"] = reconstruction
             min_objective["com"] = compute
-            min_state = deepcopy(state)
+            min_state = state
 
     # recover the min state
     for key in state:
@@ -215,7 +238,7 @@ def grad_reducto_cheap(original_state, gt_video, saliency, gt_args, db):
         min_objective["com"],
     )
 
-    vis.text += "rec: %.3e, com: %.3e\n" % (min_objective["rec"], min_objective["com"])
+    vis.text += "rec: %.3e, com: %d\n" % (min_objective["rec"], min_objective["com"])
 
     return min_objective
 

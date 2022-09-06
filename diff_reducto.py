@@ -262,12 +262,12 @@ def main(command_line_args):
                 if idx != len(server_video) - 1:
                     continue
 
-                if reducto_encode_fids is not None and idx not in reducto_encode_fids:
-                    inference_results[idx] = inference_results[idx-1]
-                    raw_saliencies_tensor.append(raw_saliencies_tensor[idx-1])
-                    saliencies[idx] = saliencies[idx-1]
-                    saliencies_tensor.append(saliencies_tensor[idx-1])
-                    continue
+                # if reducto_encode_fids is not None and idx not in reducto_encode_fids:
+                #     inference_results[idx] = inference_results[idx-1]
+                #     raw_saliencies_tensor.append(raw_saliencies_tensor[idx-1])
+                #     saliencies[idx] = saliencies[idx-1]
+                #     saliencies_tensor.append(saliencies_tensor[idx-1])
+                #     continue
                 gt_frame = gt_video[idx]
                 frame = frame.unsqueeze(0)
 
@@ -289,13 +289,13 @@ def main(command_line_args):
                 sum_score.backward()
 
                 saliency = frame_detached.grad
-                if last_saliency is None:
-                    last_saliency = saliency
-                else:
-                    temp = saliency
-                    # average w/ last-time saliency.
-                    saliency = (saliency + last_saliency) / 2
-                    last_saliency = temp
+                # if last_saliency is None:
+                #     last_saliency = saliency
+                # else:
+                #     temp = saliency
+                #     # average w/ last-time saliency.
+                #     saliency = (saliency + last_saliency) / 2
+                #     last_saliency = temp
 
 
                 raw_saliencies_tensor.append(saliency.clone())

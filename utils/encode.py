@@ -5,6 +5,7 @@ import gc
 import hashlib
 # from torchvision import io
 import io
+import time
 import logging
 import os
 import pickle
@@ -18,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from pdb import set_trace
 from subprocess import run
+import fcntl
 
 import coloredlogs
 import matplotlib.pyplot as plt
@@ -44,6 +46,49 @@ from utils.video_reader import (read_video, read_video_config,
 import utils.bbox_utils as bu
 
 logger = logging.getLogger('encode')
+
+
+def acquire(lock_file):
+    open_mode = os.O_RDWR | os.O_CREAT | os.O_TRUNC
+    fd = os.open(lock_file, open_mode)
+
+    pid = os.getpid()
+    lock_file_fd = None
+    
+    timeout = 1.0
+    start_time = current_time = time.time()
+    while current_time < start_time + timeout:
+        try:
+            logger.info('Waiting for RoI encoding...')
+            # The LOCK_EX means that only one process can hold the lock
+            # The LOCK_NB means that the fcntl.flock() is not blocking
+            # and we are able to implement termination of while loop,
+            # when timeout is reached.
+            # More information here:
+            # https://docs.python.org/3/library/fcntl.html#fcntl.flock
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (IOError, OSError):
+            pass
+        else:
+            lock_file_fd = fd
+            break
+        print(f'  {pid} waiting for lock')
+        time.sleep(1.0)
+        current_time = time.time()
+    if lock_file_fd is None:
+        os.close(fd)
+    return lock_file_fd
+
+
+def release(lock_file_fd):
+    # Do not remove the lockfile:
+    #
+    #   https://github.com/benediktschmitt/py-filelock/issues/31
+    #   https://stackoverflow.com/questions/17708885/flock-removing-locked-file-without-race-condition
+    fcntl.flock(lock_file_fd, fcntl.LOCK_UN)
+    os.close(lock_file_fd)
+    return None
+
 
 
 def tile_mask(mask, tile_size):
@@ -82,6 +127,7 @@ def normal_encoding(args, input_video, output_video):
     ffmpeg_command = ["ffmpeg"]
     ffmpeg_env = os.environ.copy()
     x264_dir = settings.x264_dir
+    roi_lock = None
     
     
     if hasattr(args, 'macroblocks'):
@@ -142,6 +188,7 @@ def normal_encoding(args, input_video, output_video):
         #             qp_file_string += f"{temp} "
         #         qp_file += "\n"
 
+        roi_lock = acquire(settings.roi_lock)
 
         with open(f"{x264_dir}/qp_matrix_file", "w") as qp_file:
 
@@ -206,6 +253,9 @@ def normal_encoding(args, input_video, output_video):
         
 
     subprocess.check_output(ffmpeg_command, env=ffmpeg_env)
+
+    if roi_lock is not None:
+        release(roi_lock)
         
     # input_video_config = read_video_config(input_video)
     output_video_config = read_video_config(output_video)
@@ -295,7 +345,7 @@ def encode(args):
         logger.debug('%d frames are left after filtering, but still encode 10 frames to align the inference results.' % len(remaining_frames))
         
         if hasattr(args, 'fr'):
-            assert args.fr == 10
+            assert args.fr == settings.ground_truths_config.fr
             
         output_video_config = normal_encoding(args, prefix + '/%010d.png', output_video)
         output_video_config['encoded_frames'] = list(remaining_frames)

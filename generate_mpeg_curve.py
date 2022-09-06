@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+os.environ['SETTINGS_FILE'] = 'settings_reducto.toml'
 import subprocess
 from pathlib import Path
 
@@ -10,11 +11,12 @@ from pdb import set_trace
 from itertools import product
 import coloredlogs
 
-from inference import inference
-from examine import examine
+from utils.inference import inference, examine
 
 from dnn.dnn_factory import DNN_Factory
 import pymongo
+from tqdm import tqdm
+import yaml
 
 
 from config import settings
@@ -35,8 +37,11 @@ def probe_range(fmt):
     return idx
 
 fmts = [
-    f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
+    f'/dataheart/dataset/rural/rural_{i}/part%d.mp4' for i in range(11)
 ]
+# fmts = [
+#     f"/dataheart/dataset/country/country_{i}/part%d.mp4" for i in range(6)
+# ]
 
 # fmts = [
 #     f'videos/driving/driving_{i}/part%d.mp4' for i in [2]
@@ -66,30 +71,40 @@ if __name__ == "__main__":
     #     for area_thresh in settings.configuration_space.reducto_area:
     #         for edge_thresh in settings.configuration_space.reducto_edge:
 
-    for fmt in fmts:
+    for idx, fmt in enumerate(fmts):
 
-        for qp in [24, 26, 28, 30, 32, 34, 36]:
+        if idx != 0:
+            continue
 
-            app = DNN_Factory().get_model(gt_config.app)
+        f1s = []
 
-            # for sec in range(probe_range(fmt)):
-            for sec in range(30):
+        app = DNN_Factory().get_model(gt_config.app)
 
-                gt_args = gt_config.copy()
-                gt_args.update({
-                    'input': fmt,
-                    'second': sec,
-                    'approach': 'mpeg'
-                })
+        # for sec in range(probe_range(fmt)):
+        for sec in tqdm(range(119)):
 
-                x_args = gt_args.copy()
-                x_args.qp = qp
-                # del x_args.fr
-                # x_args.reducto_pixel = pixel_thresh
-                # x_args.reducto_area = area_thresh
-                # x_args.reducto_edge = edge_thresh
+            gt_args = gt_config.copy()
+            gt_args.update({
+                'input': fmt,
+                'second': sec,
+                'approach': 'mpeg'
+            })
 
-                examine(x_args,gt_args,app,db)
-            
+            del gt_args.reducto_pixel_bias
+            del gt_args.reducto_area_bias
+
+            x_args = gt_args.copy()
+            x_args.fr = 1
+
+            # del x_args.fr
+            # x_args.reducto_pixel = pixel_thresh
+            # x_args.reducto_area = area_thresh
+            # x_args.reducto_edge = edge_thresh
+
+            x = examine(x_args,gt_args,app,db)
+            f1s.append(x['f1'])
+        
+        with open('stats/rural_%d.f1s' % idx, 'w') as f:
+            f.write(yaml.dump(f1s))
 
 

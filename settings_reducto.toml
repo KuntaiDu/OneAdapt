@@ -3,13 +3,15 @@
 # num_segments = 61
 # num_segments = 61
 # collection_name = 'Feb23_encoding_limit_compute'
-collection_name = 'Mar30_reducto'
+collection_name = 'Sep4_reducto'
 enable_cloudseg = false
 random_seed = 37
 segment_length = 10
-input_shape = [720, 1280] # H,W
+input_shape = [1200, 1920] # H,W
 qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
-x264_dir = '/tank/kuntai/myh264/'
+x264_dir = '/datamirror/kuntai/code/myh264/'
+roi_lock = '/tmp/roi.lock'
+root_dir = '/datamirror/kuntai/code/diff/'
 compute_limit = 5
 
 [configuration_space]
@@ -48,7 +50,7 @@ early_optimize = true
 visualize = false
 difference_threshold = 0.25
 tile_size = 16
-macroblock_shape = [45, 80]
+macroblock_shape = [75, 120]
 # the QP for macroblock encoding
 saliency_type = 'sigmoid'
 reducto_expensive_optimize = false
@@ -63,9 +65,9 @@ skip_saliency_differentiable_backprop = true    # skip differentiable backprop o
     # Discrete knobs: 1: expensive, 0: cheap.
     # Continuous knobs: initial values for them.
     # reducto_pixel_weight = 1.0
-    reducto_pixel_bias = 0.0
+    reducto_pixel_bias = -3.0
     # reducto_area_weight = 1.0
-    reducto_area_bias = 0.0
+    reducto_area_bias = -3.0
     # reducto_edge_weight = 1.0
     # reducto_edge_bias = 0.0
 
@@ -102,7 +104,7 @@ skip_saliency_differentiable_backprop = true    # skip differentiable backprop o
 [ground_truths_config]
 app = 'COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
 qp = 24
-res = '1280x720'
+res = '1920x1200'
 fr = 10
 reducto_pixel_bias = -100.0
 reducto_area_bias = -100.0
