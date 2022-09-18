@@ -3,7 +3,7 @@
 # num_segments = 61
 # num_segments = 61
 # collection_name = 'Feb23_encoding_limit_compute'
-collection_name = 'Sep10_encoding'
+collection_name = 'Sep17_encoding'
 enable_cloudseg = false
 random_seed = 37
 segment_length = 10
@@ -19,7 +19,6 @@ enable_nvenc = false
 # left ==> right: expensive ==> cheap
 qp = [20, 22, 24, 26, 28, 30, 32, 34, 36, 40]
 res = ['1920x1200', '1280x720', '858x480', '480x360']
-# preset = ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast']
 i_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 b_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 bframebias = [-100, 50, 0, 50, 100]
@@ -72,7 +71,6 @@ update_profile_immediately = false
     b_qfactor = 1.0
     bframebias = 1.0
     chromaoffset = 1.0
-    # macroblocks = true
 
     [backprop.tunable_config_lr]
     # macroblocks = 2000 

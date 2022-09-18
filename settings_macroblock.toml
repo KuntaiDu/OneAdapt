@@ -13,6 +13,7 @@ x264_dir = '/datamirror/kuntai/code/myh264/'
 roi_lock = '/tmp/roi.lock'
 root_dir = '/datamirror/kuntai/code/diff/'
 compute_limit = 5
+enable_nvenc = false
 
 [configuration_space]
 # left ==> right: expensive ==> cheap
@@ -43,6 +44,14 @@ low_quality = 36
 high_quality = 26
 iou_threshold = 0.3
 tile_size = 16
+
+
+[accmpeg]
+
+high_quality = 24
+low_quality = 36
+model_path = '/tank/kuntai/code/video-compression/maskgen_pths/COCO_detection_FPN_SSD_withconfidence_allclasses_new_unfreezebackbone_withoutclasscheck.pth.best'
+threshold = 0.15
 
 
 [backprop]
@@ -101,7 +110,7 @@ skip_saliency_differentiable_backprop = false
 app = 'COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
 qp = 24
 res = '1920x1200'
-fr = 30
+fr = 10
 # bf = 1
 # me_method = "esa"
 # me_range = 16

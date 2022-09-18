@@ -47,18 +47,30 @@ def probe_range(fmt):
 #     f'videos/yoda/dashcam_{i}/part%d.mp4' for i in range(1, 9)
 # ]
 fmts = [
-    f'videos/driving/driving_{i}/part%d.mp4' for i in range(5)
+    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in [9]
 ]
+
+st, ed = 0, 119
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
 # for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
 
-for fmt in fmts:
+lr = 0.5
+
+for idx, fmt in enumerate(fmts):
+
+    # if idx != 8:
+    #     continue
+
+    # if idx % 2 == 0:
+    #     continue
+    # if idx <6:
+    #     continue
     
-    
-    for bw_weight in [ 0.1, 0.05, 0.03]:
-    # for bw_weight in [ 0.1]:
+    # for bw_weight in [0.0018 , 0.0009 , 0.0003, 0.0001]:
+    for bw_weight in [0.0002]:
+    # for bw_weight in [0.0009, 0.0003]:
         
 
         freq = 1
@@ -69,7 +81,7 @@ for fmt in fmts:
 
         loss_type = 'saliency_error'
 
-        approach = f'backprop_encoding_SGD_bwweight_{bw_weight}_lr0.5'
+        approach = f'oneadapt_encoding_{bw_weight}_lr_{lr}'
         
 
         if force or not os.path.exists(output):
@@ -77,20 +89,21 @@ for fmt in fmts:
             env = os.environ.copy()
             
             env['DYNACONF_BACKPROP__BW_WEIGHT'] = f'{bw_weight}'
-            env['DYNACONF_BACKPROP__LR'] = '0.5'
+            env['DYNACONF_BACKPROP__LR'] = f'{lr}'
+            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_encoding.toml'
             
 
             run([
-                'python', 'diff_cloudseg.py',
+                'python', 'diff_encoding.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',
-                '--start', '0',
-                '--end', '%d' % probe_range(fmt),
+                '--start', f'{st}',
+                '--end', f'{ed}',
                 # '--end', '%d' % 30,
                 '--num_iterations', '1',
-                '--loss_type', loss_type,
                 '--frequency', '1',
+                '--loss_type', 'saliency_error',
                 # '--qp', f'{qp}',
                 # '--res', f'{res}',
                 # '--fr', f'{fr}',

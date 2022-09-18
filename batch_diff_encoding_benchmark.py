@@ -25,7 +25,7 @@ bwweight_list = [6]
 # res_list = [1e-6,  0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1]
 # res_list = [res_list[i] for i in range(len(res_list)) if i % 2 == 1]
 
-lr = 0.1
+lr = 0.2
 
 # lr = 0
 orig_freq = 1
@@ -44,39 +44,40 @@ def probe_range(fmt):
 #     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 # ]
 # fmts = [
-#     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
+#     f'videos/yoda/dashcam_{i}/part%d.mp4' for i in range(1, 9)
 # ]
-
-# for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
-
-# for compute_weight in [0.5, 1, 1.5, 2]:
-# fmts = [
-#     f'videos/dashcamcropped/dashcamcropped_1_3xdownsample/part%d.mp4'
-# ]
-
-# fmts = [
-#     f'/dataheart/dataset/rural/rural_{i}/part%d.mp4' for i in [0,1,3,6,8,9]
-# ]
-
 fmts = [
-    f'/dataheart/dataset/country/country_{i}/part%d.mp4' for i in [1,3]
+    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(10)
 ]
+
 st, ed = 0, 119
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
+# for bw_weight in [ 0.005, 0.05, 0.03, 0.01]:
+
+lr = 0.5
 
 for idx, fmt in enumerate(fmts):
+
+    # if idx != 8:
+    #     continue
+
+    if idx not in  [9]:
+        continue
+
     # if idx % 2 == 0:
     #     continue
-    for compute_weight in [0.8, 1.0, 1.2]:
-
-
-        # st, ed = 41, 51
-        # st, ed = 120, 130
+    # if idx <6:
+    #     continue
+    
+    # for bw_weight in [0.0018 , 0.0009 , 0.0003, 0.0001]:
+    # for bw_weight in [0.0002]:
+    # for bw_weight in [0.0009, 0.0003]:
+    for bw_weight in [0.0002, 0.0018 , 0.0009 , 0.0003, 0.0001, 0.0006,]:
         
-        if fmt != "/dataheart/dataset/country/country_1/part%d.mp4":
-            continue
+
+        freq = 1
 
         # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
         # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
@@ -84,28 +85,29 @@ for idx, fmt in enumerate(fmts):
 
         loss_type = 'saliency_error'
 
-        approach = f'oneadapt_reducto_weight_{compute_weight}'
+        approach = f'6param_oneadapt_encoding_{bw_weight}_lr_{lr}'
         
 
-        if force:
+        if force or not os.path.exists(output):
             
             env = os.environ.copy()
             
-            # env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{bw_perc}'
-            env['DYNACONF_BACKPROP__COMPUTE_WEIGHT'] = f'{compute_weight}'
-            env['SETTINGS_FILE'] = 'settings_reducto.toml'
+            env['DYNACONF_BACKPROP__BW_WEIGHT'] = f'{bw_weight}'
+            env['DYNACONF_BACKPROP__LR'] = f'{lr}'
+            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_encoding_benchmark_6params.toml'
+            
 
             run([
-                'python', 'diff_reducto.py',
+                'python', 'diff_encoding.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',
                 '--start', f'{st}',
-                # '--end', '%d' % probe_range(fmt),
                 '--end', f'{ed}',
+                # '--end', '%d' % 30,
                 '--num_iterations', '1',
-                '--loss_type', loss_type,
                 '--frequency', '1',
+                '--loss_type', 'saliency_error',
                 # '--qp', f'{qp}',
                 # '--res', f'{res}',
                 # '--fr', f'{fr}',

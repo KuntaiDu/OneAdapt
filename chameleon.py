@@ -37,8 +37,10 @@ from utils.video_reader import read_video, read_video_config, read_video_to_tens
 import utils.config_utils as conf
 from collections import defaultdict
 from tqdm import tqdm
-from inference import inference, encode
-from examine import examine
+# from inference import inference, encode
+# from examine import examine
+from utils.inference import inference, examine
+from utils.encode import encode
 import pymongo
 from munch import *
 from utils.seed import set_seed
@@ -54,12 +56,12 @@ logger = logging.getLogger("chameleon")
 
 def profile(command_line_args, previous_arg, gt_args, app, db, compute):
 
-    stat = examine(previous_arg, gt_args, app, db)
-    gt_bw = stat['bw']
-    gt_compute = len(stat['encoded_frames'])
+    stat = examine(previous_arg, gt_args, app, db, key='profile')
+    gt_bw = stat['my_video_config']['bw']
+    gt_compute = len(stat['my_video_config']['encoded_frames'])
     objective = (1-stat['f1']) \
-        + settings.backprop.bw_weight * stat['bw'] / gt_bw \
-        + settings.backprop.compute_weight * len(stat['encoded_frames']) / gt_compute
+        + settings.backprop.bw_weight * stat['my_video_config']['bw'] / gt_bw
+        # + settings.backprop.compute_weight * len(stat['encoded_frames']) / gt_compute
 
     logger.info(f'Initial objective: {objective:.4f}')
     
@@ -70,7 +72,7 @@ def profile(command_line_args, previous_arg, gt_args, app, db, compute):
     for key in settings.configuration_space:
         
         
-        if command_line_args.enable_top3 and key not in ['res', 'qp', 'preset']:
+        if command_line_args.enable_top3 and key not in ['res', 'qp', 'bframebias']:
             continue
 
         args = deepcopy(optimal_args)
@@ -88,17 +90,17 @@ def profile(command_line_args, previous_arg, gt_args, app, db, compute):
 
             stat = examine(args, gt_args, app, db, key='profile')
             new_objective = (1-stat['f1']) \
-                + settings.backprop.bw_weight * stat['bw'] / gt_bw \
-                + settings.backprop.compute_weight * len(stat['encoded_frames']) / gt_compute
+                + settings.backprop.bw_weight * stat['my_video_config']['bw'] / gt_bw 
+                # + settings.backprop.compute_weight * len(stat['encoded_frames']) / gt_compute
 
             logger.info(f'Objective: %.4f 1-F1: %.4f BW: %.4f Com: %.4f' %(
                 new_objective,
                 1- stat['f1'],
-                stat['bw'] / gt_bw,
-                len(stat['encoded_frames']) / gt_compute
+                stat['my_video_config']['bw'] / gt_bw,
+                len(stat['my_video_config']['encoded_frames']) / gt_compute
             ))
             
-            compute['compute'] = compute['compute'] + len(stat['encoded_frames'])
+            compute['compute'] = compute['compute'] + len(stat['my_video_config']['encoded_frames'])
 
             if new_objective < objective:
                 logger.info('Update objective.')
@@ -111,7 +113,10 @@ def profile(command_line_args, previous_arg, gt_args, app, db, compute):
         logger.info(f'{key}: {optimal_args[key]}')
 
     for stat_key in ['f1', 'bw', 'encoded_frames']:
-        logger.info(f'{stat_key}: {optimal_stat[stat_key]}')
+        if stat_key == 'f1':
+            logger.info(f'{stat_key}: {optimal_stat[stat_key]}')
+        else:
+            logger.info(f'{stat_key}: {optimal_stat["my_video_config"][stat_key]}')
         
     delay = (compute['compute'] + settings.compute_limit - 1) // settings.compute_limit
 
@@ -164,7 +169,7 @@ def main(command_line_args):
     gt_args = deepcopy(optimal_args)
     
     # constraint optimal args's QP into the configuration space.
-    optimal_args.qp = 20
+    # optimal_args.qp = 20
     
     next_profile_second = 0
 
@@ -176,10 +181,12 @@ def main(command_line_args):
             current_args.second = second
         
         compute = {'compute': 0}
-        norm_bw = 0
+        profile_flag = False
 
         if second == next_profile_second:
-            
+
+
+            profile_flag = True
             '''
                 Previous profiling finished.
                 Refresh the config and launch the new profiling.
@@ -187,28 +194,31 @@ def main(command_line_args):
             current_args = optimal_args.copy()
             current_args.second = second
             optimal_args, delay = profile(command_line_args, optimal_args, gt_args, app, db, compute)
+            if settings.chameleon.immediate_profile:
+                current_args = optimal_args.copy()
+                current_args.second = second
             
             next_profile_second = second + delay
             
             logger.info('Next profiling second is %d', next_profile_second)
 
-        stat = examine(current_args, gt_args, app, db)
+        stat = examine(current_args, gt_args, app, db, profile=profile_flag)
         norm_bw = 1.
         f1 = 1.0
         
-        if second % args.frequency != 0:
-            compute['compute'] = len(stat['encoded_frames'])
-            norm_bw = stat['norm_bw']
-            f1 = stat['f1']
+        # if second % args.frequency != 0:
+        #     compute['compute'] = len(stat['encoded_frames'])
+        #     norm_bw = stat['norm_bw']
+        #     f1 = stat['f1']
             
-        db['cost'].insert_one({
-            'command_line_args': vars(command_line_args), 
-            'settings': settings.to_dict(),
-            'compute': compute['compute'] / settings.segment_length,
-            'norm_bw': norm_bw,
-            'second': second,
-            'f1': f1,
-        })
+        # db['cost'].insert_one({
+        #     'command_line_args': vars(command_line_args), 
+        #     'settings': settings.to_dict(),
+        #     'compute': compute['compute'] / settings.segment_length,
+        #     'norm_bw': norm_bw,
+        #     'second': second,
+        #     'f1': f1,
+        # })
 
         
 

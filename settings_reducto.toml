@@ -13,6 +13,7 @@ x264_dir = '/datamirror/kuntai/code/myh264/'
 roi_lock = '/tmp/roi.lock'
 root_dir = '/datamirror/kuntai/code/diff/'
 compute_limit = 5
+enable_nvenc = false
 
 [configuration_space]
 # left ==> right: expensive ==> cheap

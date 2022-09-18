@@ -48,7 +48,7 @@ fmts = [
     f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(10)
 ]
 
-st, ed = 0, 180
+st, ed = 0, 119
 
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):

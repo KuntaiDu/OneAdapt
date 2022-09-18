@@ -68,6 +68,9 @@ for idx, fmt in enumerate(fmts):
     for compute_weight in [0.01, 0.04, 0.07]:
         for freq in [4]:
 
+            if fmt != "/dataheart/dataset/country/country_1/part%d.mp4":
+                continue
+
 
             # st, ed = 41, 51
             # st, ed = 120, 130
