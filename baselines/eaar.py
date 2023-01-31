@@ -168,7 +168,7 @@ def main(command_line_args):
             maskB = generate_mask_from_regions(
                 mask[idx:idx+1].clone(), regions, 0, settings.dds.tile_size
             )
-            mask_delta = maskB - maskA
+            mask_delta = maskB
             mask_delta[mask_delta < 0] = 0
             mask[idx:idx+1, :, :, :] = mask_delta
 

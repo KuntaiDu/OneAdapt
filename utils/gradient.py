@@ -18,7 +18,7 @@ from utils.reducto import reducto_feature2meanstd, reducto_process
 from utils.tqdm_handler import TqdmLoggingHandler
 from utils.video_reader import read_video, read_video_config, read_video_to_tensor
 from utils.timer import Timer
-from utils.encode import encode
+from utils.encode import encode, tile_mask
 import torch.nn.functional as F
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "grad_reducto_expensive",
     "grad_reducto_cheap",
     "grad",
+    "postprocess_saliency",
 ]
 
 logger = logging.getLogger("gradient")
@@ -243,7 +244,7 @@ def grad_reducto_cheap(original_state, gt_video, saliency, gt_args, db):
     return min_objective
 
 
-def grad(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
+def grad(state, args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
 
     if key == "macroblocks":
         return optimize_macroblocks(args, key, grad, gt_config, gt_video)
@@ -336,7 +337,7 @@ def grad(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
             objective = (
                 settings.backprop.reconstruction_loss_weight * objective["rec"]
                 + settings.backprop.bw_weight * objective["bw"]
-                + settings.backprop.compute_weight * objective["com"]
+                # + settings.backprop.compute_weight * objective["com"]
             )
 
             logger.info(f"Before backwrad, gradient is {x.grad}")
@@ -366,3 +367,14 @@ def grad(args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
 
     check()
 
+
+
+def postprocess_saliency(saliency):
+
+    tile_size = settings.backprop.tile_size
+
+    saliency = saliency.abs().sum(dim=1, keepdim=True)
+    saliency = F.avg_pool2d(saliency, tile_size)
+    saliency = tile_mask(saliency[0, 0], tile_size)[None, None, :, :]
+
+    return saliency

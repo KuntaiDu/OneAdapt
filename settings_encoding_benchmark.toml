@@ -17,8 +17,8 @@ enable_nvenc = false
 
 [configuration_space]
 # left ==> right: expensive ==> cheap
-# qp = [20, 22, 24, 26, 28, 30, 32, 34, 36, 40]
-res = ['1920x1200', '1280x720', '858x480', '480x360']
+qp = [20, 22, 24, 26, 28, 30, 32, 34, 36, 40]
+# res = ['1920x1200', '1280x720', '858x480', '480x360']
 i_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 # b_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 # bframebias = [-100, 50, 0, 50, 100]
@@ -65,8 +65,8 @@ update_profile_immediately = false
     # reducto_area = 1.0
     # reducto_edge = 1.0
 
-    # qp = 1.0
-    res = 1.0
+    qp = 1.0
+    # res = 1.0
     i_qfactor = 1.0
     # b_qfactor = 1.0
     # bframebias = 1.0

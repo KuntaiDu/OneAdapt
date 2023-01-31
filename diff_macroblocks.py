@@ -78,9 +78,6 @@ def read_expensive_from_config(
     gt_args, state, app, db, command_line_args, train_flag=False
 ):
 
-    average_video = None
-    average_bw = 0
-    sum_prob = 0
 
     for args in conf.serialize_most_expensive_state(
         gt_args.copy(), conf.state2config(state), conf.serialize_order

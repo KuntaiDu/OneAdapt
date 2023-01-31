@@ -54,8 +54,8 @@ def calc_reducto_diff(cur_frame, prev_frame, args, is_pil_image, binarize):
                 )
                 - args[f"reducto_{key}_bias"]
             ).sigmoid()
-            for key in feature2values.keys()
-        ]
+            for key in feature2values.keys() if reducto_feature2meanstd[key]["std"] > 0
+        ] + [torch.tensor(1.0)]
     )
 
     if binarize:

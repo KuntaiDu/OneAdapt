@@ -56,7 +56,7 @@ def transform(result, lengt):
 
 
 
-def examine(my_args, gt_args, my_app, db, key='examine'):
+def examine(my_args, gt_args, my_app, db, key='examine', profile=False):
 
     assert isinstance(my_args, Munch)
     assert isinstance(gt_args, Munch)
@@ -95,6 +95,11 @@ def examine(my_args, gt_args, my_app, db, key='examine'):
         # update accuracy metrics
         ret.update(my_app.calc_accuracy(my_dict, gt_dict))
         # update normalized bandwidth
+        if profile:
+            # need to stream the video from the camera to the server.
+            my['video_config']['bw'] = gt['video_config']['bw']
+            ret['my_video_config']['bw'] = gt['video_config']['bw']
+            ret['f1'] = 1.0
         ret.update({'norm_bw': my['video_config']['bw'] * 1.0 / gt['video_config']['bw']})
 
         db[key].insert_one(ret)

@@ -59,10 +59,12 @@ st, ed = 0, 119
 
 for idx, fmt in enumerate(fmts):
 
-    # if idx % 2 == 1:
-    #     continue
-    for lq in [32, 30, 28, 36]:
+    if idx % 2 == 1 and idx < 6:
+        continue
+    # for thresh in [0.2, 0.15, 0.1]:
+    for lq in [42, 44, 50]:
         freq = orig_freq
+        thresh = 0.15
 
         # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
         # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
@@ -70,7 +72,7 @@ for idx, fmt in enumerate(fmts):
 
         loss_type = 'saliency_error'
 
-        approach = f'dds_lq_{lq}'
+        approach = f'accmpeg_thresh_{thresh}_lq_{lq}'
         
 
         if force:
@@ -78,10 +80,11 @@ for idx, fmt in enumerate(fmts):
             env = os.environ.copy()
             
             env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_macroblock.toml'
-            env['DYNACONF_DDS__low_quality'] = f'{lq}'
+            env['DYNACONF_ACCMPEG__threshold'] = f'{thresh}'
+            env['DYNACONF_ACCMPEG__low_quality'] = f'{lq}'
 
             run([
-                'python', 'dds.py',
+                'python', 'accmpeg.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',

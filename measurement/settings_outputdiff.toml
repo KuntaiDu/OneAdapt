@@ -3,25 +3,31 @@
 # num_segments = 61
 # num_segments = 61
 # collection_name = 'Feb23_encoding_limit_compute'
-collection_name = 'Mar26_roi_coco'
+collection_name = 'Jan22_measurement'
 enable_cloudseg = false
 random_seed = 37
 segment_length = 10
-input_shape = [720, 1280] # H,W
-# qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
+input_shape = [1200, 1920] # H,W
+qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
 x264_dir = '/datamirror/kuntai/code/myh264/'
+roi_lock = '/tmp/roi.lock'
+root_dir = '/datamirror/kuntai/code/diff/'
 compute_limit = 5
+enable_nvenc = false
 
 [configuration_space]
 # left ==> right: expensive ==> cheap
-# replicate the right most (the cheapest) configuration twice at the end.
-# qp = [20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50]
-# res = ['1280x720', '858x480', '480x360', '352x240', '320x180']
+# qp = [20, 22, 24, 26, 28, 30, 32, 34, 36, 40]
+qp = [20, 24, 28, 32, 36, 40]
+res = ['1920x1200', '1600x1000', '1280x800', '960x600', '640x400']
 # preset = ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast']
-# bf = [1,2,3,4,5,6,7,8,9]
+# i_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+# b_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+bframebias = [-100, 50, 0, 50, 100]
+# chromaoffset = [-4, -3, -2, -1, 0]
 
-# # b_strategy = [2,1]
-# # b_qfactor = [0.0, 0.1, 0.2]
+# b_strategy = [2,1]
+# b_qfactor = [0.0, 0.1, 0.2]
 # me_method = ['esa', 'umh', 'hex', 'dia']
 # me_range = [16, 14, 12, 10, 8, 6, 4]
 # subq = [9,8,7,6,5,4,3,2,1]
@@ -34,10 +40,11 @@ compute_limit = 5
 
 [backprop]
 lr = 0.1
-bw_percentage = 0.1 # 10% of the video in high quality.
-# bw_weight = 0.07
-# reconstruction_loss_weight = 0.5
+bw_weight = 0.07
+reconstruction_loss_weight = 0.5
 train = true # update the configuration or not
+# std_score_mean_weight = 0
+# compute_weight = 1
 # std_score_mean_weight = 0
 # compute_weight = 3
 # sum_score_mean_wight = 1
@@ -46,10 +53,10 @@ early_optimize = true
 visualize = false
 difference_threshold = 0.25
 tile_size = 16
-macroblock_shape = [45, 80]
-# the QP for macroblock encoding
-qps = [24, 26, 28, 30, 34, 36]
+macroblock_shape = [75, 120]
 saliency_type = 'sigmoid'
+skip_saliency_differentiable_backprop = false
+update_profile_immediately = false
 
 
     [backprop.frozen_config]
@@ -60,16 +67,11 @@ saliency_type = 'sigmoid'
     # reducto_area = 1.0
     # reducto_edge = 1.0
 
-    # qp = 1.0
-    # res = 1.0
-    # preset = 1.0
-    # bf = 1.0
-    # me_method = 1.0
-    # me_range = 1.0
-    # subq = 1.0
-    macroblocks = true
+    qp = 1.0
+    res = 1.0
+    # macroblocks = true
 
-    # [backprop.tunable_config_lr]
+    [backprop.tunable_config_lr]
     # macroblocks = 2000 
 
 
@@ -80,14 +82,19 @@ saliency_type = 'sigmoid'
     # app = 'EfficientDet_d2'
     # tunable_configs = ['reducto_pixel', 'reducto_area', 'reducto_edge']
     
-
+[chameleon]
+immediate_profile = false
 
 
 [ground_truths_config]
 app = 'COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
-qp = 24
-res = '1280x720'
+qp = 20
+res = '1920x1200'
 fr = 10
+# i_qfactor = 0.1
+# b_qfactor = 0.1
+bframebias = -100
+# chromaoffset = -4
 # bf = 1
 # me_method = "esa"
 # me_range = 16
@@ -111,10 +118,12 @@ size_threshold = 0.08
 
 
 
+
+
 [COCO-Detection_faster_rcnn_R_101_FPN_3x_yaml]
 confidence_threshold = 0.5
 gt_confidence_threshold = 0.5
 # let's only care about cars
 class_ids = [2]
-size_threshold = 0.05
+size_threshold = 0.08
 iou_threshold = 0.5

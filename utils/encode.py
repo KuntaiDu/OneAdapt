@@ -125,6 +125,8 @@ def normal_encoding(args, input_video, output_video):
     
     
     ffmpeg_command = ["ffmpeg"]
+    # if settings.enable_nvenc:
+    #     ffmpeg_command = ["/usr/bin/ffmpeg"]
     ffmpeg_env = os.environ.copy()
     x264_dir = settings.x264_dir
     roi_lock = None
@@ -229,24 +231,41 @@ def normal_encoding(args, input_video, output_video):
             f"{args.res}"
         ]
     
-    if hasattr(args, 'bf'):
-        ffmpeg_command += ["-bf", f"{args.bf}"]
-    if hasattr(args, 'me_range'):
-        ffmpeg_command += ["-me_range", f"{args.me_range}"]
-    if hasattr(args, "me_method"):
-        ffmpeg_command += ["-me_method", f"{args.me_method}"]
-    if hasattr(args, "subq"):
-        ffmpeg_command += ["-subq", f"{args.subq}"]
+    # if hasattr(args, 'bf'):
+    #     ffmpeg_command += ["-bf", f"{args.bf}"]
+    # if hasattr(args, 'me_range'):
+    #     ffmpeg_command += ["-me_range", f"{args.me_range}"]
+    # if hasattr(args, "me_method"):
+    #     ffmpeg_command += ["-me_method", f"{args.me_method}"]
+    # if hasattr(args, "subq"):
+    #     ffmpeg_command += ["-subq", f"{args.subq}"]
+    attr_list = ['i_qfactor', 'b_qfactor', 'chromaoffset']
+    for attr in attr_list:
+        if hasattr(args, attr):
+            ffmpeg_command += [f"-{attr}", f"{args[attr]}"]
     if hasattr(args, 'fr'):
         ffmpeg_command += [
             "-filter:v",
             f"fps={args.fr}"]
     if 'qp' in args:
+        if settings.enable_nvenc:
+            ffmpeg_command += [
+                '-c:v', 
+                'h264_nvenc', 
+                "-qp",
+                f"{args.qp}"]
+        else:
+            ffmpeg_command += [
+                '-c:v', 
+                'libx264', 
+                "-qp",
+                f"{args.qp}"]
+
+    if 'bframebias' in args:
         ffmpeg_command += [
-            '-c:v', 
-            'libx264', 
-            "-qp",
-            f"{args.qp}"]
+            '-x264-params',
+            'b-bias=%d' % args.bframebias
+        ]
     ffmpeg_command += [output_video,]
     
     logger.info('Run: ' +  ' '.join(ffmpeg_command))

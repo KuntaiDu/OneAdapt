@@ -85,7 +85,7 @@ for idx, fmt in enumerate(fmts):
 
         loss_type = 'saliency_error'
 
-        approach = f'6param_oneadapt_encoding_{bw_weight}_lr_{lr}'
+        approach = f'2param_oneadapt_encoding_{bw_weight}_lr_{lr}'
         
 
         if force or not os.path.exists(output):
@@ -94,7 +94,7 @@ for idx, fmt in enumerate(fmts):
             
             env['DYNACONF_BACKPROP__BW_WEIGHT'] = f'{bw_weight}'
             env['DYNACONF_BACKPROP__LR'] = f'{lr}'
-            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_encoding_benchmark_6params.toml'
+            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_encoding_benchmark.toml'
             
 
             run([

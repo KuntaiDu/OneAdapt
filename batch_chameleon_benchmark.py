@@ -35,12 +35,12 @@ for fmt in fmts:
 
             # loss_type = 'saliency_error'
 
-            approach = f'6param_immediate_chameleon_{downsample_factor}x_bwweight_{bw_weight}'
+            approach = f'2param_immediate_chameleon_{downsample_factor}x_bwweight_{bw_weight}'
             
             env = os.environ.copy()
             
             env['DYNACONF_BACKPROP__BW_WEIGHT'] = f'{bw_weight}'
-            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_encoding_benchmark_6params.toml'
+            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_encoding_benchmark.toml'
             env['DYNACONF_chameleon__immediate_profile'] = 'true'
             
 
