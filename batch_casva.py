@@ -16,7 +16,7 @@ def probe_range(fmt):
 #     f'videos/yoda/dashcam_{i}/part%d.mp4' for i in range(1, 9)
 # ]
 fmts = [
-    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(10)
+    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(5, 10)
 ]
 
 st, ed = 0, 119
@@ -24,12 +24,10 @@ st, ed = 0, 119
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 for idx, fmt in enumerate(fmts):
     
-    if idx % 2 == 1:
-        continue
     
     for bw_weight in [0.2, 0.05, 0.0125]:
         
-        for downsample_factor in [2, 3]:
+        for downsample_factor in [2]:
 
             # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
             # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
@@ -37,18 +35,18 @@ for idx, fmt in enumerate(fmts):
 
             # loss_type = 'saliency_error'
 
-            approach = f'chameleon_{downsample_factor}x_bwweight_{bw_weight}'
+            approach = f'casva_{downsample_factor}x_bwweight_{bw_weight}'
             
             env = os.environ.copy()
             
             env['DYNACONF_BACKPROP__BW_WEIGHT'] = f'{bw_weight}'
             env['SETTINGS_FILE'] = '/dataheart/kuntai_recovery/code/diff_yitian/settings_encoding.toml'
-            # env['DYNACONF_chameleon__immediate_profile'] = 'true'
+            env['DYNACONF_chameleon__immediate_profile'] = 'true'
             env['FVCORE_CACHE'] = '/dataheart/kuntai_recovery_cache'
             
 
             run([
-                'python', 'chameleon.py',
+                'python', 'casva.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',

@@ -22,10 +22,11 @@ fmts = [
 st, ed = 0, 10
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
-for fmt in fmts:
-            
+for idx, fmt in enumerate(fmts):
+    if idx % 2 == 1:
+        continue
     env = os.environ.copy()
-    env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/measurement/settings_outputdiff.toml'
+    env['SETTINGS_FILE'] = '/dataheart/kuntai_recovery/code/diff_yitian/measurement/settings_outputdiff.toml'
     run([
         'python', 'outputdiff.py',
         '-i', fmt,
@@ -33,7 +34,7 @@ for fmt in fmts:
         # '--sec', '61',
         '--start', '%d' % st,
         '--end', '%d' % ed,
-        '--stats', '/datamirror/kuntai/code/diff/measurement/stats/temp.yaml'
+        '--stats', '/dataheart/kuntai_recovery/code/diff_yitian/measurement/stats/temp7.yaml'
         # '--qp', f'{qp}',
         # '--res', f'{res}',
         # '--fr', f'{fr}',

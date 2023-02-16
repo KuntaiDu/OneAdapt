@@ -288,7 +288,7 @@ def encode(args):
 
     input_video = args.input % args.second
     # nput_video = args.input % 1
-    prefix = f"{settings.root_dir}/cache/temp_{time.time()}"
+    prefix = f"/tmp/temp_{time.time()}"
     output_video = prefix + '.mp4'
     
     

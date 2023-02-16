@@ -44,6 +44,7 @@ from utils.encode import encode
 import pymongo
 from munch import *
 from utils.seed import set_seed
+from itertools import product
 
 from copy import deepcopy
 
@@ -69,44 +70,42 @@ def profile(command_line_args, previous_arg, gt_args, app, db, compute):
     optimal_stat = stat
 
 
-    for key in settings.configuration_space:
+    config_list = {}
+    for key in  settings.configuration_space:
+        config_list[key] = [(key, val) for idx, val in enumerate(settings.configuration_space[key]) if idx % command_line_args.downsample_factor == 0]
+
+    for pairs in list(product(*config_list.values())):
         
         
         # if command_line_args.enable_top3 and key not in ['res', 'qp', 'bframebias']:
         #     continue
 
         args = deepcopy(optimal_args)
-
-        for idx, val in enumerate(settings.configuration_space[key]):
-            
-            if idx == len(settings.configuration_space[key]) - 1:
-                continue # The last configuration is just a sentinal.
-            if idx % command_line_args.downsample_factor != 0:
-                continue # downsample the configuration space uniformly
-
-            logger.info(f'Searching {key}:{val}')
-
+        for (key, val) in pairs:
             args[key] = val
+        logger.info(f'Searching {key}:{val}')
 
-            stat = examine(args, gt_args, app, db, key='profile')
-            new_objective = (1-stat['f1']) \
-                + settings.backprop.bw_weight * stat['my_video_config']['bw'] / gt_bw 
-                # + settings.backprop.compute_weight * len(stat['encoded_frames']) / gt_compute
+        args[key] = val
 
-            logger.info(f'Objective: %.4f 1-F1: %.4f BW: %.4f Com: %.4f' %(
-                new_objective,
-                1- stat['f1'],
-                stat['my_video_config']['bw'] / gt_bw,
-                len(stat['my_video_config']['encoded_frames']) / gt_compute
-            ))
-            
-            compute['compute'] = compute['compute'] + len(stat['my_video_config']['encoded_frames'])
+        stat = examine(args, gt_args, app, db, key='profile')
+        new_objective = (1-stat['f1']) \
+            + settings.backprop.bw_weight * stat['my_video_config']['bw'] / gt_bw 
+            # + settings.backprop.compute_weight * len(stat['encoded_frames']) / gt_compute
 
-            if new_objective < objective:
-                logger.info('Update objective.')
-                objective = new_objective
-                optimal_args = deepcopy(args)
-                optimal_stat = stat
+        logger.info(f'Objective: %.4f 1-F1: %.4f BW: %.4f Com: %.4f' %(
+            new_objective,
+            1- stat['f1'],
+            stat['my_video_config']['bw'] / gt_bw,
+            len(stat['my_video_config']['encoded_frames']) / gt_compute
+        ))
+        
+        compute['compute'] = compute['compute'] + len(stat['my_video_config']['encoded_frames'])
+
+        if new_objective < objective:
+            logger.info('Update objective.')
+            objective = new_objective
+            optimal_args = deepcopy(args)
+            optimal_stat = stat
 
 
     for key in settings.configuration_space:

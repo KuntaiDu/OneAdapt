@@ -199,6 +199,7 @@ def main(command_line_args):
 
         # the text for visualization
         vis.text = ""
+        logger.info("Input: %s", command_line_args.input)
 
         # get the ground truth configuration and the camera-side ground truth video
         gt_args = munchify(settings.ground_truths_config.to_dict())
@@ -223,6 +224,15 @@ def main(command_line_args):
         stat, args, server_video = read_expensive_from_config(
             gt_args, state, app, db, command_line_args, train_flag
         )
+        yaml_result = {
+            'bandwidth': stat['my_video_config']['bw'],
+            'compute': len(stat['my_video_config']['encoded_frames']),
+            'input': args.input,
+            'second': args.second,
+            'f1': stat['f1'],
+        }
+        with open(f'stats/{command_line_args.approach}.yaml', 'a') as f:
+            f.write(yaml.dump([yaml_result]))
         my_video_config = stat["my_video_config"]
         logger.info("Actual compute: %d" % my_video_config["compute"])
         vis.text += ("Comp: %d\n" "Acc : %.3f\n" "Bw  : %.3f\n") % (

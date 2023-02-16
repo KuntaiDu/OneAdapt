@@ -48,10 +48,10 @@ def probe_range(fmt):
 # ]
 
 fmts = [
-    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(10)
+    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(1)
 ]
 
-st, ed = 0, 119
+st, ed = 0, 10
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
@@ -59,12 +59,12 @@ st, ed = 0, 119
 
 for idx, fmt in enumerate(fmts):
 
-    if idx % 2 == 1 and idx < 6:
-        continue
+    # if idx % 2 == 0:
+    #     continue
     # for thresh in [0.2, 0.15, 0.1]:
-    for lq in [42, 44, 50]:
+    for lq in [36, 40, 44]:
         freq = orig_freq
-        thresh = 0.15
+        thresh = 0.18
 
         # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
         # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
@@ -79,9 +79,10 @@ for idx, fmt in enumerate(fmts):
             
             env = os.environ.copy()
             
-            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_macroblock.toml'
+            env['SETTINGS_FILE'] = '/dataheart/kuntai_recovery/code/diff_yitian/settings_macroblock.toml'
             env['DYNACONF_ACCMPEG__threshold'] = f'{thresh}'
             env['DYNACONF_ACCMPEG__low_quality'] = f'{lq}'
+            env['FVCORE_CACHE'] = '/dataheart/kuntai_recovery_cache'
 
             run([
                 'python', 'accmpeg.py',

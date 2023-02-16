@@ -3,15 +3,15 @@
 # num_segments = 61
 # num_segments = 61
 # collection_name = 'Feb23_encoding_limit_compute'
-collection_name = 'Aug25_macroblocks'
+collection_name = 'Feb11_mbs'
 enable_cloudseg = false
 random_seed = 37
 segment_length = 10
 input_shape = [1200, 1920] # H,W
 # qp_matrix_file = '/tank/kuntai/code/qp_matrix_file'
-x264_dir = '/datamirror/kuntai/code/myh264/'
-roi_lock = '/tmp/roi.lock'
-root_dir = '/datamirror/kuntai/code/diff/'
+x264_dir = '/tank/kuntai/myh264'
+roi_lock = '/tmp/roi.lock.kuntai'
+root_dir = '/dataheart/kuntai_recovery/code/diff_yitian/'
 compute_limit = 5
 enable_nvenc = false
 

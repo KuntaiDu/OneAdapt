@@ -47,8 +47,9 @@ def probe_range(fmt):
 #     f'videos/yoda/dashcam_{i}/part%d.mp4' for i in range(1, 9)
 # ]
 fmts = [
-    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in [9]
+    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(10)
 ]
+
 
 st, ed = 0, 119
 
@@ -63,14 +64,14 @@ for idx, fmt in enumerate(fmts):
     # if idx != 8:
     #     continue
 
-    # if idx % 2 == 0:
+    # if idx % 2 == 1:
     #     continue
     # if idx <6:
     #     continue
     
     # for bw_weight in [0.0018 , 0.0009 , 0.0003, 0.0001]:
-    for bw_weight in [0.0002]:
-    # for bw_weight in [0.0009, 0.0003]:
+    # for bw_weight in [ 0.0003 / 10, 0.0001 / 8,]:
+    for bw_weight in [0.0001 / 10,]:
         
 
         freq = 1
@@ -90,8 +91,9 @@ for idx, fmt in enumerate(fmts):
             
             env['DYNACONF_BACKPROP__BW_WEIGHT'] = f'{bw_weight}'
             env['DYNACONF_BACKPROP__LR'] = f'{lr}'
-            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_encoding.toml'
-            
+            env['SETTINGS_FILE'] = '/dataheart/kuntai_recovery/code/diff_yitian/settings_encoding.toml'
+            env['FVCORE_CACHE'] = '/dataheart/kuntai_recovery_cache'
+                     
 
             run([
                 'python', 'diff_encoding.py',

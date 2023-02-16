@@ -58,25 +58,24 @@ def probe_range(fmt):
 #     f'/dataheart/dataset/rural/rural_{i}/part%d.mp4' for i in [0,1,3,6,8,9]
 # ]
 
+v_list = [('country', '%d' % i) for i in [2,3,4,5]] + [('rural', '%d' % i) for i in [0, 8, 9]]
+# v_list = [('country', '%d' % i) for i in [0]]
 fmts = [
-    f'/dataheart/dataset/country/country_{i}/part%d.mp4' for i in [1,3]
+    f'/dataheart/dataset/{v}/{v}_{idx}/part%d.mp4' for v, idx in v_list
 ]
 st, ed = 0, 119
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-
 for idx, fmt in enumerate(fmts):
-    # if idx % 2 == 0:
-    #     continue
-    for compute_weight in [0.8, 1.0, 1.2]:
-
+    
+    if idx % 2 == 0:
+        continue
+    # for idx2, compute_weight in enumerate([0.1, 1.0, 10]):
+    for compute_weight in [0.01]:
 
         # st, ed = 41, 51
         # st, ed = 120, 130
-        
-        if fmt != "/dataheart/dataset/country/country_1/part%d.mp4":
-            continue
 
         # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
         # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
@@ -84,7 +83,7 @@ for idx, fmt in enumerate(fmts):
 
         loss_type = 'saliency_error'
 
-        approach = f'oneadapt_reducto_weight_{compute_weight}'
+        approach = f'oneadapt_reducto_weight_{compute_weight}_onechannel'
         
 
         if force:
@@ -94,6 +93,7 @@ for idx, fmt in enumerate(fmts):
             # env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{bw_perc}'
             env['DYNACONF_BACKPROP__COMPUTE_WEIGHT'] = f'{compute_weight}'
             env['SETTINGS_FILE'] = 'settings_reducto.toml'
+            env['FVCORE_CACHE'] = '/dataheart/kuntai_recovery_cache'
 
             run([
                 'python', 'diff_reducto.py',

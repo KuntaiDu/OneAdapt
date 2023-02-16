@@ -17,13 +17,13 @@ enable_nvenc = false
 
 [configuration_space]
 # left ==> right: expensive ==> cheap
-qp = [20, 22, 24, 26, 28, 30, 32, 34, 36, 40]
-res = ['1920x1200', '1280x720', '858x480', '480x360']
+qp = [20, 22, 24, 26, 28, 30, 34, 38, 42, 46, 50]
+res = ['1920x1200', '1600x1000', '1280x800', '1024x640', '896x560', '768x480', '640x400']
 # preset = ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast']
-i_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-b_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-bframebias = [-100, 50, 0, 50, 100]
-chromaoffset = [-4, -3, -2, -1, 0]
+# i_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+# b_qfactor = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+bframebias = [-100, -50, 0, 50, 100]
+# chromaoffset = [-4, -3, -2, -1, 0]
 
 # b_strategy = [2,1]
 # b_qfactor = [0.0, 0.1, 0.2]
@@ -68,10 +68,10 @@ update_profile_immediately = false
 
     qp = 1.0
     res = 1.0
-    i_qfactor = 1.0
-    b_qfactor = 1.0
+    # i_qfactor = 1.0
+    # b_qfactor = 1.0
     bframebias = 1.0
-    chromaoffset = 1.0
+    # chromaoffset = 1.0
     # macroblocks = true
 
     [backprop.tunable_config_lr]
@@ -94,10 +94,10 @@ app = 'COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml'
 qp = 20
 res = '1920x1200'
 fr = 10
-i_qfactor = 0.1
-b_qfactor = 0.1
+# i_qfactor = 0.1
+# b_qfactor = 0.1
 bframebias = -100
-chromaoffset = -4
+# chromaoffset = -4
 # bf = 1
 # me_method = "esa"
 # me_range = 16
@@ -114,12 +114,8 @@ visualize_step_size = 1
 force_examine = false
 
 
-
-
 [postprocess]
 size_threshold = 0.08
-
-
 
 
 
@@ -130,3 +126,5 @@ gt_confidence_threshold = 0.5
 class_ids = [2]
 size_threshold = 0.08
 iou_threshold = 0.5
+
+

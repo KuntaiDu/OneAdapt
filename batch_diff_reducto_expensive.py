@@ -53,8 +53,10 @@ def probe_range(fmt):
 
 # 1fps Accuracy > 60%
 
+# v_list = [('country', '%d' % i) for i in [0,2,3,4,5]] + [('rural', '%d' % i) for i in [0, 8, 9]]
+v_list = [('country', '%d' % i) for i in [0,3]]
 fmts = [
-    f'/dataheart/dataset/country/country_{i}/part%d.mp4' for i in [1,3]
+    f'/dataheart/dataset/{v}/{v}_{idx}/part%d.mp4' for v, idx in v_list
 ]
 st, ed = 0, 119
 
@@ -63,14 +65,14 @@ st, ed = 0, 119
 # varying profile frequency does not affect performance much.
 for idx, fmt in enumerate(fmts):
 
-    # if idx != 2:
+    # if idx % 2 == 1:
     #     continue
     # for compute_weight in [0.01, 0.04, 0.07]:
-    for compute_weight in [0.04]:
-        for freq in [5,6,7]:
+    for compute_weight in [0.01, 0.07]:
+        for freq in [8]:
 
-            if fmt != "/dataheart/dataset/country/country_1/part%d.mp4":
-                continue
+            # if fmt != "/dataheart/dataset/country/country_1/part%d.mp4":
+            #     continue
 
 
             # st, ed = 41, 51
@@ -92,6 +94,7 @@ for idx, fmt in enumerate(fmts):
                 env['DYNACONF_BACKPROP__COMPUTE_WEIGHT'] = f'{compute_weight}'
                 env['SETTINGS_FILE'] = 'settings_reducto.toml'
                 env['DYNACONF_BACKPROP__REDUCTO_EXPENSIVE_OPTIMIZE'] = 'true'
+                env['FVCORE_CACHE'] = '/dataheart/kuntai_recovery_cache'
 
                 run([
                     'python', 'diff_reducto.py',

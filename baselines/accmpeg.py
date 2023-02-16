@@ -162,7 +162,16 @@ def main(command_line_args):
         mask = mask.mean(dim=0)[0]
         mask = (mask > settings.accmpeg.threshold).int()
         dds_args.macroblocks = mask * settings.accmpeg.high_quality + (1-mask) * settings.accmpeg.low_quality
-        examine(dds_args, gt_args, app, db)
+        stat = examine(dds_args, gt_args, app, db)
+        yaml_result = {
+            'bandwidth': stat['my_video_config']['bw'],
+            'compute': len(stat['my_video_config']['encoded_frames']),
+            'input': dds_args.input,
+            'second': dds_args.second,
+            'f1': stat['f1'],
+        }
+        with open(f'{settings.root_dir}/stats/{command_line_args.approach}.yaml', 'a') as f:
+            f.write(yaml.dump([yaml_result]))
 
 
 

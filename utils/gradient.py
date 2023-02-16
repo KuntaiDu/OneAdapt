@@ -196,7 +196,7 @@ def grad_reducto_cheap(original_state, gt_video, saliency, gt_args, db):
                 )
 
         # calculate objective
-        reconstruction = (saliency * (gt_video - video).abs()).mean()
+        reconstruction = (saliency * (gt_video - video).abs()).mean() * 1e7
         compute = len(set(reducto_encode_fids))
         candidate_map[candidate] = {
             "rec": reconstruction,
@@ -335,7 +335,7 @@ def grad(state, args: dict, key: str, grad: torch.Tensor, gt_config, gt_video):
                 for i in hq_losses.keys()
             }
             objective = (
-                settings.backprop.reconstruction_loss_weight * objective["rec"]
+                settings.backprop.reconstruction_loss_weight * objective["rec"] * 1e7
                 + settings.backprop.bw_weight * objective["bw"]
                 # + settings.backprop.compute_weight * objective["com"]
             )

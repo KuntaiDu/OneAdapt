@@ -43,17 +43,41 @@ def probe_range(fmt):
 # fmts = [
 #     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
 # ]
-fmts = [
-    f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
-]
+# fmts = [
+#     f'videos/trafficcam/trafficcam_{i}/part%d.mp4' for i in range(1, 2)
+# ]
 
 # for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
 
-for bw_perc in [0.25, 0.2, 0.15, 0.1]:
+# for compute_weight in [0.5, 1, 1.5, 2]:
+# fmts = [
+#     f'videos/dashcamcropped/dashcamcropped_1_3xdownsample/part%d.mp4'
+# ]
 
-    for fmt in fmts:
+# fmts = [
+#     f'/dataheart/dataset/rural/rural_{i}/part%d.mp4' for i in [0,1,3,6,8,9]
+# ]
 
-        freq = orig_freq
+# v_list = [('country', '%d' % i) for i in [0,2,3,4,5]] + [('rural', '%d' % i) for i in [0, 8, 9]]
+v_list = [('country', '%d' % i) for i in [0,2,3,4,5]] + [('rural', '%d' % i) for i in [0, 8, 9]]
+# v_list = [('country', '%d' % i) for i in [0]]
+fmts = [
+    f'/tank/kuntai/dataset/{v}/{v}_{idx}/part%d.mp4' for v, idx in v_list
+]
+st, ed = 0, 119
+
+# for qp, fr, res, bwweight in product(qp_list, fr_list, res_list, bwweight_list):
+
+for idx, fmt in enumerate(fmts):
+    
+    if idx % 2 == 0:
+        continue
+    # for idx2, compute_weight in enumerate([0.1, 1.0, 10]):
+    # for compute_weight in [0.01]:
+    for area in [-1]:
+
+        # st, ed = 41, 51
+        # st, ed = 120, 130
 
         # output = f'diff_results_dense_interp/stuttgart_0_lr_{lr}_qp_{qp}_res_{res}_fr_{fr}.txt'
         # output = f'stats/diff_results_reducto/reducto-efficientdet-d2.txt'
@@ -61,24 +85,25 @@ for bw_perc in [0.25, 0.2, 0.15, 0.1]:
 
         loss_type = 'saliency_error'
 
-        approach = f'backprop_macroblocks_bwperc_{bw_perc}_prevsaliency_roi_lowqp36_sigmoid'
+        approach = f'reducto_fixed_{area}'
         
 
-        if force or not os.path.exists(output):
+        if force:
             
             env = os.environ.copy()
             
-            env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{bw_perc}'
-            env['SETTINGS_FILE'] = 'settings_macroblock.toml'
+            # env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{bw_perc}'
+            env['SETTINGS_FILE'] = 'settings_reducto.toml'
+            env['FVCORE_CACHE'] = '/dataheart/kuntai_recovery_cache'
 
             run([
-                'python', 'diff_cloudseg.py',
+                'python', 'diff_reducto_baseline.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',
-                '--start', '0',
+                '--start', f'{st}',
                 # '--end', '%d' % probe_range(fmt),
-                '--end', '%d' % 30,
+                '--end', f'{ed}',
                 '--num_iterations', '1',
                 '--loss_type', loss_type,
                 '--frequency', '1',
@@ -89,6 +114,7 @@ for bw_perc in [0.25, 0.2, 0.15, 0.1]:
                 # '--freq', f'{freq}',
                 # '--train',
                 '--approach', approach,
+                "--area", '%d' % area,
                 # '--bw_weight', f'{bwweight}',
             ], env=env)
 

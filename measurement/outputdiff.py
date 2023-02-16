@@ -3,7 +3,7 @@
 """
 
 import sys
-sys.path.append('/datamirror/kuntai/code/diff/')
+sys.path.append('/dataheart/kuntai_recovery/code/diff_yitian/')
 
 import argparse
 import gc
@@ -27,9 +27,9 @@ from torchvision import io
 from datetime import datetime
 import random
 import torchvision
+from config import settings
 
 import yaml
-from config import settings
 
 from pdb import set_trace
 
@@ -99,7 +99,7 @@ def profile(command_line_args, gt_args, app, db, conf_thresh, stats_file):
 
         ret = inference_stats
         ret['f1'] = stats['f1']
-        for key in ['second', 'input', 'qpidx', 'residx', 'bframebiasidx']:
+        for key in ['second', 'input', 'qpidx', 'residx', 'fridx', 'qp', 'res', 'fr']:
             ret[key] = stats['my_args'][key]
 
         with open(stats_file, 'a') as f:

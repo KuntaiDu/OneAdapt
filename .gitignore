@@ -2,6 +2,11 @@
 # videos
 videos/
 *.mp4
+*.png
+*.jpg
+*_matrix_file
+qp_delta_size_file
+*_encoder
 
 # pycache
 __pycache__/

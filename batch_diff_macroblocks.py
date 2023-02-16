@@ -45,7 +45,7 @@ def probe_range(fmt):
 # ]
 
 fmts = [
-    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(10)
+    f'/dataheart/dataset/downtown/downtown_{i}/part%d.mp4' for i in range(1)
 ]
 
 st, ed = 0, 119
@@ -78,7 +78,7 @@ for idx, fmt in enumerate(fmts):
             env = os.environ.copy()
             env['DYNACONF_BACKPROP__BW_PERCENTAGE'] = f'{thresh}'
             env['DYNACONF_BACKPROP__VISUALIZE'] = 'false'
-            env['SETTINGS_FILE'] = '/datamirror/kuntai/code/diff/settings_macroblock.toml'
+            env['SETTINGS_FILE'] = '/dataheart/kuntai_recovery/code/diff_yitian/settings_macroblock.toml'
 
             run([
                 'python', 'diff_macroblocks.py',
