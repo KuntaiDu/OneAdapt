@@ -4,10 +4,21 @@ from pathlib import Path
 from config import settings
 from PIL import Image
 import numpy as np
+import logging
+from tqdm import tqdm
+import ImageDraw
+import ImageFont
+from detectron2.structures.instances import Instances
+import torchvision.transforms as T
 
 text = ""
+visualize_folder = None
+results_vis = None
+errors_vis = None
 
-__all__ = ['VideoVisualizer', 'text']
+
+
+logger = logging.getLogger("visualize")
 
 class VideoVisualizer:
 
@@ -49,3 +60,64 @@ class VideoVisualizer:
         self.container.mux(packet)
 
         self.container.close()
+
+
+
+def init(command_line_args):
+    global visualize_folder, results_vis, errors_vis
+    visualize_folder = Path('debug/' + command_line_args.input).parent
+    visualize_folder.mkdir(exist_ok=True, parents=True)
+    results_vis = VideoVisualizer(f"{visualize_folder}/{command_line_args.approach}_results.mp4")
+    errors_vis = VideoVisualizer(f"{visualize_folder}/{command_line_args.approach}_errors.mp4")
+
+
+
+
+def visualize(stat, app, video, my_results, gt_results):
+
+    global text
+    
+    # visualize
+    my_video_config = stat["my_video_config"]
+    logger.info("Actual compute: %d" % my_video_config["compute"])
+    text += ("Comp: %d\n" "Acc : %.3f\n" "Bw  : %.3f\n") % (
+        my_video_config["compute"],
+        stat["acc"],
+        stat["norm_bw"],
+    )
+    
+    if settings.backprop.visualize:
+        for idx, frame in enumerate(tqdm(video, desc="visualize", unit="frame")):
+
+            image = T.ToPILImage()(frame.clamp(0, 1))
+
+            draw = ImageDraw.Draw(image)
+            font = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 24)
+            # manually bold the text :-P
+            draw.multiline_text((10, 10), text, fill=(255, 0, 0), font=font)
+            draw.multiline_text((11, 10), text, fill=(255, 0, 0), font=font)
+            draw.multiline_text((12, 10), text, fill=(255, 0, 0), font=font)
+
+            my_result = app.filter_result(my_results[idx])
+            gt_result = app.filter_result(gt_results[idx], gt=True)
+
+            (
+                gt_ind,
+                my_ind,
+                gt_filtered,
+                my_filtered,
+            ) = app.get_undetected_ground_truth_index(my_result, gt_result)
+
+            image_error = app.visualize(
+                image,
+                {
+                    "instances": Instances.cat(
+                        [gt_filtered[gt_ind], my_filtered[my_ind]]
+                    )
+                },
+            )
+            image_inference = app.visualize(image, my_result)
+            errors_vis.add_frame(image_error)
+            results_vis.add_frame(image_inference)
+
+        logger.info("Visualize text:\n%s", text)

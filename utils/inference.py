@@ -150,17 +150,13 @@ def inference(args, db, app=None, video_name=None, video_config=None):
 
         inference_results = {}
         encoded_fids = video_config['encoded_frames']
-
-        if args.get('cloudseg', None):
-            logger.info('CloudSeg enabled. Will perform SR.')
-
+        
+        # inference.
         with torch.no_grad():
             for fid, frame in enumerate(tqdm(read_video_to_tensor(video_name), unit='frame', desc='inference')):
                 if fid in encoded_fids:
                     # inference
                     frame = frame.unsqueeze(0)
-                    if args.get('cloudseg', None):
-                        frame = conf.SR_dnn(frame.to('cuda:1')).cpu()
                     inference_results[fid] = app.inference(frame, grad=False, detach=True, dryrun=False)
                 else:
                     inference_results[fid] = deepcopy(inference_results[fid-1])
