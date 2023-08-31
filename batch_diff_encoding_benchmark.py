@@ -98,7 +98,7 @@ for idx, fmt in enumerate(fmts):
             
 
             run([
-                'python', 'diff_encoding.py',
+                'python', 'main.py',
                 '-i', fmt,
                 # '-i', 'videos/yoda/dashcam_1/part%d.mp4',
                 # '--sec', '61',

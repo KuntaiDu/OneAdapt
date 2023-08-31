@@ -131,7 +131,7 @@ def main(command_line_args):
             'bandwidth': stat['my_video_config']['bw'],
             'compute': len(stat['my_video_config']['encoded_frames']),
             'input': args.input,
-            'second': args.second,
+            'second': sec,
             'f1': stat['f1'],
         }
         with open(f'stats/{command_line_args.approach}.yaml', 'a') as f:
